@@ -10,10 +10,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { PlusCircle, Edit, Trash2, GripVertical, AlertCircle, Copy, ClipboardCheck } from 'lucide-react'; // Added Copy, ClipboardCheck
+import { PlusCircle, Edit, Trash2, GripVertical, AlertCircle, Copy, ClipboardCheck, Loader2, BrainCircuit } from 'lucide-react'; // Added Loader2, BrainCircuit
 import { useToast } from '@/hooks/use-toast';
 import { useSprints } from '@/hooks/useSprints'; // Import sprint hook
 import { useTickets } from '@/hooks/useTickets'; // Import ticket hook
+import { generateJiraComment, type GenerateJiraCommentInput, type GenerateJiraCommentOutput } from '@/ai/flows/generate-jira-comment'; // Import the new flow
 import {
   Dialog,
   DialogContent,
@@ -61,6 +62,7 @@ export default function TicketsPage() {
   const { toast } = useToast();
   const [isMounted, setIsMounted] = useState(false); // State to track mount
   const [generatedComments, setGeneratedComments] = useState<Record<string, string>>({}); // State for generated comments
+  const [generatingCommentId, setGeneratingCommentId] = useState<string | null>(null); // State to track which comment is being generated
 
   // --- Effects ---
   // Set initial sprint selection and track mount
@@ -125,29 +127,44 @@ export default function TicketsPage() {
   }, [updateTicketStatus]);
 
 
-  const handleGenerateJiraComment = useCallback((ticket: Ticket) => {
+  const handleGenerateJiraComment = useCallback(async (ticket: Ticket) => {
     if (!ticket.postScrumDiscussionResults) {
       toast({ title: "No Discussion Results", description: "Cannot generate comment without discussion results.", variant: "destructive" });
       return;
     }
-    const commentBody = `Post-scrum discussion summary:\n\n${ticket.postScrumDiscussionResults}`;
-    setGeneratedComments(prev => ({ ...prev, [ticket.id]: commentBody }));
-    toast({ title: "Jira Comment Generated", description: "Comment ready to be copied." });
-    // Remove automatic posting for now, focus on display and copy
-    // try {
-    //   const success = await postCommentToJira(ticket.id, { body: commentBody });
-    //   if (success) {
-    //     toast({ title: "Comment Posted", description: `Comment added to Jira ticket ${ticket.id}.` });
-    //   } else {
-    //     throw new Error("Failed to post comment.");
-    //   }
-    // } catch (error) {
-    //   console.error("Failed to post comment to Jira:", error);
-    //   toast({ title: "Jira Error", description: "Could not post comment to Jira.", variant: "destructive" });
-    // }
+    setGeneratingCommentId(ticket.id);
+    setGeneratedComments(prev => ({ ...prev, [ticket.id]: '' })); // Clear previous comment while generating
+
+    try {
+       const input: GenerateJiraCommentInput = {
+         discussionResults: ticket.postScrumDiscussionResults,
+       };
+       const result: GenerateJiraCommentOutput = await generateJiraComment(input);
+       setGeneratedComments(prev => ({ ...prev, [ticket.id]: result.jiraComment }));
+       toast({ title: "AI Jira Comment Generated", description: "Comment ready to be copied." });
+
+    } catch (error) {
+        console.error("Error generating Jira comment:", error);
+        let description = "Could not generate Jira comment. Please try again.";
+        if (error instanceof Error && (error.message.includes('503') || error.message.toLowerCase().includes('overloaded'))) {
+            description = "The AI model is currently unavailable or overloaded. Please try again later.";
+        }
+        toast({
+            title: "Error Generating Comment",
+            description: description,
+            variant: "destructive",
+        });
+        setGeneratedComments(prev => ({ ...prev, [ticket.id]: `Error: ${description}` })); // Show error in comment area
+    } finally {
+      setGeneratingCommentId(null);
+    }
   }, [toast]);
 
   const handleCopyComment = useCallback(async (commentText: string) => {
+    if (!commentText || commentText.startsWith('Error:')) {
+        toast({ title: "Cannot Copy", description: "No valid comment to copy.", variant: "destructive" });
+        return;
+    }
     try {
         await navigator.clipboard.writeText(commentText);
         toast({ title: "Comment Copied", description: "Jira comment copied to clipboard." });
@@ -364,7 +381,8 @@ export default function TicketsPage() {
                     </AlertDialog>
                   </div>
                 </CardHeader>
-                {(ticket.markForPostScrum || ticket.specialNotes || ticket.dailyWorkNote || generatedComments[ticket.id]) && ( // Check if comment exists
+                 {/* Check if comment exists or if generating */}
+                {(ticket.markForPostScrum || ticket.specialNotes || ticket.dailyWorkNote || generatedComments[ticket.id] || generatingCommentId === ticket.id) && (
                   <CardContent className="p-4 pt-0 text-xs space-y-2">
                     {ticket.dailyWorkNote && (
                       <p><strong>Daily Note:</strong> {ticket.dailyWorkNote}</p>
@@ -377,29 +395,50 @@ export default function TicketsPage() {
                         <p className="flex items-center gap-1 font-semibold"><AlertCircle className="h-3 w-3 text-accent" /> Post-Scrum Marked</p>
                         {ticket.postScrumPrepNotes && <p><strong>Prep:</strong> {ticket.postScrumPrepNotes}</p>}
                         {ticket.postScrumDiscussionResults && <p><strong>Results:</strong> {ticket.postScrumDiscussionResults}</p>}
-                        {ticket.postScrumDiscussionResults && !generatedComments[ticket.id] && ( // Only show generate button if no comment exists
-                          <Button size="sm" variant="link" className="p-0 h-auto text-xs" onClick={() => handleGenerateJiraComment(ticket)}>
-                            Generate Jira Comment
-                          </Button>
-                        )}
-                        {generatedComments[ticket.id] && ( // Show comment and copy button if comment exists
-                          <div className="bg-muted p-2 rounded-md mt-1 space-y-1">
-                            <p className="font-medium">Generated Comment:</p>
-                            <pre className="whitespace-pre-wrap text-xs">{generatedComments[ticket.id]}</pre>
-                            <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => handleCopyComment(generatedComments[ticket.id]!)}>
-                              <Copy className="h-3 w-3 mr-1" /> Copy Comment
+
+                         {/* Show Generate Button or Loading State */}
+                         {ticket.postScrumDiscussionResults && generatingCommentId !== ticket.id && (
+                            <Button
+                                size="sm"
+                                variant="link"
+                                className="p-0 h-auto text-xs flex items-center gap-1"
+                                onClick={() => handleGenerateJiraComment(ticket)}
+                                disabled={generatingCommentId !== null} // Disable if any comment is generating
+                            >
+                               <BrainCircuit className="h-3 w-3" /> Generate AI Jira Comment
                             </Button>
+                        )}
+                         {generatingCommentId === ticket.id && (
+                            <div className="flex items-center text-muted-foreground text-xs gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Generating comment...
+                            </div>
+                        )}
+
+                        {/* Show Generated Comment and Copy Button */}
+                        {generatedComments[ticket.id] && generatingCommentId !== ticket.id && (
+                          <div className={`bg-muted p-2 rounded-md mt-1 space-y-1 ${generatedComments[ticket.id]?.startsWith('Error:') ? 'border border-destructive text-destructive' : ''}`}>
+                            <p className="font-medium">AI Generated Comment:</p>
+                            <pre className="whitespace-pre-wrap text-xs">{generatedComments[ticket.id]}</pre>
+                            {!generatedComments[ticket.id]?.startsWith('Error:') && (
+                                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => handleCopyComment(generatedComments[ticket.id]!)}>
+                                <Copy className="h-3 w-3 mr-1" /> Copy Comment
+                                </Button>
+                            )}
                           </div>
                         )}
                       </div>
                     )}
-                     {!ticket.markForPostScrum && generatedComments[ticket.id] && ( // Show comment even if not marked for post-scrum anymore, if it exists
-                          <div className="border-t pt-2 mt-2 space-y-1 bg-muted p-2 rounded-md">
+                     {/* Show previously generated comment even if not marked for post-scrum anymore */}
+                     {!ticket.markForPostScrum && generatedComments[ticket.id] && generatingCommentId !== ticket.id && (
+                          <div className={`border-t pt-2 mt-2 space-y-1 bg-muted p-2 rounded-md ${generatedComments[ticket.id]?.startsWith('Error:') ? 'border border-destructive text-destructive' : ''}`}>
                              <p className="font-medium">Previously Generated Comment:</p>
                             <pre className="whitespace-pre-wrap text-xs">{generatedComments[ticket.id]}</pre>
-                            <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => handleCopyComment(generatedComments[ticket.id]!)}>
-                              <Copy className="h-3 w-3 mr-1" /> Copy Comment
-                            </Button>
+                            {!generatedComments[ticket.id]?.startsWith('Error:') && (
+                                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => handleCopyComment(generatedComments[ticket.id]!)}>
+                                <Copy className="h-3 w-3 mr-1" /> Copy Comment
+                                </Button>
+                            )}
                           </div>
                         )}
                   </CardContent>
@@ -522,7 +561,7 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
       </DialogHeader>
       {/* Assign an ID to the form for the submit button */}
       {/* Removed padding from the form, relies on DialogContent padding */}
-      <form id="ticket-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 gap-x-4 max-h-[70vh] overflow-y-auto p-1"> {/* Added p-1 */}
+      <form id="ticket-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 gap-x-4 max-h-[70vh] overflow-y-auto p-1 pr-3"> {/* Added pr-3 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> {/* Nested grid for ID and Name */}
             <div className="space-y-1">
                 <Label htmlFor="ticket-id">Ticket ID</Label>
@@ -624,4 +663,4 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
   );
 }
 
-    
+
