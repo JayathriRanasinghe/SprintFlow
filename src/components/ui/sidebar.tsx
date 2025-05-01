@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -72,7 +73,16 @@ const SidebarProvider = React.forwardRef<
 
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
-    const [_open, _setOpen] = React.useState(defaultOpen)
+    const [_open, _setOpen] = React.useState(() => {
+        if (typeof document !== 'undefined') {
+            const cookieValue = document.cookie
+            .split("; ")
+            .find((row) => row.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+            ?.split("=")[1];
+            return cookieValue ? cookieValue === 'true' : defaultOpen;
+        }
+        return defaultOpen;
+    })
     const open = openProp ?? _open
     const setOpen = React.useCallback(
       (value: boolean | ((value: boolean) => boolean)) => {
@@ -84,7 +94,9 @@ const SidebarProvider = React.forwardRef<
         }
 
         // This sets the cookie to keep the sidebar state.
-        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+        if (typeof document !== 'undefined') {
+            document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+        }
       },
       [setOpenProp, open]
     )
@@ -553,39 +565,68 @@ const SidebarMenuButton = React.forwardRef<
     },
     ref
   ) => {
-    const Comp = asChild ? Slot : "button"
     const { isMobile, state } = useSidebar()
 
-    const button = (
-      <Comp
-        ref={ref}
-        data-sidebar="menu-button"
-        data-size={size}
-        data-active={isActive}
-        className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
-        {...props}
-      />
+    const buttonProps = {
+      ref: ref,
+      'data-sidebar': "menu-button",
+      'data-size': size,
+      'data-active': isActive,
+      className: cn(sidebarMenuButtonVariants({ variant, size }), className),
+      ...props,
+    }
+
+    const button = asChild ? (
+      <Slot {...buttonProps}>{props.children}</Slot>
+    ) : (
+      <button {...buttonProps}>{props.children}</button>
     )
 
     if (!tooltip) {
       return button
     }
 
+    let tooltipContentProps: React.ComponentProps<typeof TooltipContent> = {
+        side: "right",
+        align: "center",
+        hidden: state !== "collapsed" || isMobile,
+    };
+
     if (typeof tooltip === "string") {
-      tooltip = {
-        children: tooltip,
-      }
+        tooltipContentProps.children = tooltip;
+    } else {
+        tooltipContentProps = { ...tooltipContentProps, ...tooltip };
     }
 
     return (
       <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="center"
-          hidden={state !== "collapsed" || isMobile}
-          {...tooltip}
-        />
+        {/* TooltipTrigger must receive a single React element child.
+            If `asChild` is true, the child is passed directly.
+            If `asChild` is false, the button itself is the child.
+            We need to ensure the direct child of TooltipTrigger is NOT using `asChild`.
+        */}
+        <TooltipTrigger asChild>
+          {asChild ? (
+             <Slot
+                ref={ref}
+                data-sidebar="menu-button"
+                data-size={size}
+                data-active={isActive}
+                className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+                {...props}
+                >{props.children}</Slot>
+          ) : (
+             <button
+                ref={ref}
+                data-sidebar="menu-button"
+                data-size={size}
+                data-active={isActive}
+                className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+                {...props}
+              >{props.children}</button>
+          )}
+        </TooltipTrigger>
+        <TooltipContent {...tooltipContentProps} />
       </Tooltip>
     )
   }

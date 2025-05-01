@@ -34,9 +34,8 @@ export default function AppSidebar() {
           </svg>
           <span className="font-semibold text-lg text-foreground">SprintFlow</span>
         </Link>
-        <SidebarTrigger asChild className="md:hidden">
-          <Button variant="ghost" size="icon" />
-        </SidebarTrigger>
+        {/* Removed asChild prop */}
+        <SidebarTrigger className="md:hidden" />
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
