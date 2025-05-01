@@ -36,6 +36,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { postCommentToJira } from '@/services/jira'; // Assuming service exists
+import { Separator } from '@/components/ui/separator'; // Import Separator
 
 const ticketStatuses: TicketStatus[] = ['Todo', 'In Progress', 'Code Review', 'QA Ready', 'QA', 'Done'];
 
@@ -63,8 +64,11 @@ export default function TicketsPage() {
   // --- Effects ---
   // Set initial sprint selection only on the client after mount
   useEffect(() => {
-    if (!selectedSprintId && sprints.length > 0) {
-      setSelectedSprintId(sprints[0].id);
+    // Check if hydration is complete before setting state based on sprints
+    if (typeof window !== 'undefined') {
+        if (!selectedSprintId && sprints.length > 0) {
+            setSelectedSprintId(sprints[0].id);
+        }
     }
     // Intentionally run only once on mount to set initial state
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,13 +76,15 @@ export default function TicketsPage() {
 
   // Effect to handle sprint list changes (e.g., deletion)
   useEffect(() => {
-    // Check if the currently selected sprint still exists in the list
-    if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
-      // If not, select the first available sprint or undefined if none exist
-      setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
-    } else if (!selectedSprintId && sprints.length > 0) {
+     if (typeof window !== 'undefined') {
+        // Check if the currently selected sprint still exists in the list
+        if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
+        // If not, select the first available sprint or undefined if none exist
+        setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
+        } else if (!selectedSprintId && sprints.length > 0) {
         // If no sprint is selected but sprints exist, select the first one
         setSelectedSprintId(sprints[0].id);
+        }
     }
   }, [sprints, selectedSprintId]); // Re-run if sprints list or selection changes
 
@@ -91,8 +97,8 @@ export default function TicketsPage() {
   // --- Ticket Operations ---
   const handleAddTicketSubmit = useCallback((formData: Omit<Ticket, 'id' | 'order'> & { id?: string }) => {
     if (!selectedSprintId) {
-        toast({ title: "No Sprint Selected", description: "Please select a sprint first.", variant: "destructive" });
-        return;
+      toast({ title: "No Sprint Selected", description: "Please select a sprint first.", variant: "destructive" });
+      return;
     }
     const createdTicket = addTicket({ ...formData, sprintId: selectedSprintId });
     toast({ title: "Ticket Added", description: `Ticket "${createdTicket.name}" created.` });
@@ -100,8 +106,8 @@ export default function TicketsPage() {
   }, [selectedSprintId, addTicket, toast]);
 
   const handleUpdateTicketSubmit = useCallback((updatedTicketData: Omit<Ticket, 'order' | 'sprintId'>) => {
-     if (!editingTicket) return;
-     const fullUpdatedTicket = { ...editingTicket, ...updatedTicketData }; // Ensure all fields are present
+    if (!editingTicket) return;
+    const fullUpdatedTicket = { ...editingTicket, ...updatedTicketData }; // Ensure all fields are present
     updateTicket(fullUpdatedTicket);
     toast({ title: "Ticket Updated", description: `Ticket "${fullUpdatedTicket.name}" saved.` });
     setEditingTicket(null);
@@ -111,13 +117,13 @@ export default function TicketsPage() {
   const handleDeleteTicketConfirm = useCallback((id: string) => {
     const ticketToDelete = tickets.find(t => t.id === id);
     deleteTicket(id);
-     toast({ title: "Ticket Deleted", description: `Ticket "${ticketToDelete?.name}" removed.` });
+    toast({ title: "Ticket Deleted", description: `Ticket "${ticketToDelete?.name}" removed.` });
   }, [deleteTicket, toast, tickets]);
 
-   const handleStatusChange = useCallback((ticketId: string, newStatus: TicketStatus) => {
-     updateTicketStatus(ticketId, newStatus);
-      // Optionally toast success
-     // toast({ title: "Status Updated", description: `Ticket ${ticketId} status changed to ${newStatus}.` });
+  const handleStatusChange = useCallback((ticketId: string, newStatus: TicketStatus) => {
+    updateTicketStatus(ticketId, newStatus);
+    // Optionally toast success
+    // toast({ title: "Status Updated", description: `Ticket ${ticketId} status changed to ${newStatus}.` });
   }, [updateTicketStatus]);
 
 
@@ -128,15 +134,15 @@ export default function TicketsPage() {
     }
     const commentBody = `Post-scrum discussion summary:\n\n${ticket.postScrumDiscussionResults}`;
     try {
-        const success = await postCommentToJira(ticket.id, { body: commentBody });
-        if (success) {
-            toast({ title: "Comment Posted", description: `Comment added to Jira ticket ${ticket.id}.` });
-        } else {
-            throw new Error("Failed to post comment.");
-        }
+      const success = await postCommentToJira(ticket.id, { body: commentBody });
+      if (success) {
+        toast({ title: "Comment Posted", description: `Comment added to Jira ticket ${ticket.id}.` });
+      } else {
+        throw new Error("Failed to post comment.");
+      }
     } catch (error) {
-        console.error("Failed to post comment to Jira:", error);
-        toast({ title: "Jira Error", description: "Could not post comment to Jira.", variant: "destructive" });
+      console.error("Failed to post comment to Jira:", error);
+      toast({ title: "Jira Error", description: "Could not post comment to Jira.", variant: "destructive" });
     }
   };
 
@@ -162,39 +168,39 @@ export default function TicketsPage() {
     // If dropping onto a ticket, targetOrder is that ticket's order.
     // If dropping into the empty space at the end, targetOrder can be tickets.length + 1
     let insertIndex = 0;
-     if (targetOrder > draggedTicket.order) {
-         // Dragging down: Find the index AFTER the target's original position
-         insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
-         if (insertIndex === -1) {
-             insertIndex = remainingTickets.length; // Insert at the end
-         }
-     } else {
-         // Dragging up: Find the index AT the target's original position
-        insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
-        if (insertIndex === -1 && remainingTickets.length > 0) {
-             // This case shouldn't typically happen if targetOrder is valid, but handle defensively
-             insertIndex = 0;
-        } else if (insertIndex === -1 && remainingTickets.length === 0) {
-            insertIndex = 0; // Inserting the only item
-        }
-     }
+    if (targetOrder > draggedTicket.order) {
+      // Dragging down: Find the index AFTER the target's original position
+      insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
+      if (insertIndex === -1) {
+        insertIndex = remainingTickets.length; // Insert at the end
+      }
+    } else {
+      // Dragging up: Find the index AT the target's original position
+      insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
+      if (insertIndex === -1 && remainingTickets.length > 0) {
+        // This case shouldn't typically happen if targetOrder is valid, but handle defensively
+        insertIndex = 0;
+      } else if (insertIndex === -1 && remainingTickets.length === 0) {
+        insertIndex = 0; // Inserting the only item
+      }
+    }
 
 
     const newOrderedTickets = [
-        ...remainingTickets.slice(0, insertIndex),
-        draggedTicket,
-        ...remainingTickets.slice(insertIndex)
+      ...remainingTickets.slice(0, insertIndex),
+      draggedTicket,
+      ...remainingTickets.slice(insertIndex)
     ];
 
     updateTicketsOrder(selectedSprintId, newOrderedTickets); // Update order via hook
 
-     toast({ title: "Ticket Order Updated", description: "Ticket order saved for this sprint." });
+    toast({ title: "Ticket Order Updated", description: "Ticket order saved for this sprint." });
   };
 
-   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-        e.preventDefault(); // Necessary to allow drop
-        e.dataTransfer.dropEffect = "move"; // Indicate it's a move operation
-    };
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); // Necessary to allow drop
+    e.dataTransfer.dropEffect = "move"; // Indicate it's a move operation
+  };
 
   const openEditDialog = (ticket: Ticket) => {
     setEditingTicket(ticket);
@@ -206,51 +212,51 @@ export default function TicketsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tickets</h1>
         <div className="flex gap-2 w-full md:w-auto">
-            <Select
-              value={selectedSprintId} // Use state value
-              onValueChange={setSelectedSprintId}
-              disabled={sprints.length === 0}
-            >
-              <SelectTrigger className="w-full md:w-[200px]">
-                 {/* Display selected sprint name or placeholder */}
-                <SelectValue placeholder="Select Sprint" />
-              </SelectTrigger>
-              <SelectContent>
-                {sprints.length === 0 && <SelectItem value="no-sprints" disabled>No Sprints Available</SelectItem>}
-                {sprints.map(sprint => (
-                  <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-              <DialogTrigger asChild>
-                <Button disabled={!selectedSprintId}>
-                  <PlusCircle className="mr-2 h-4 w-4" /> Add Ticket
-                </Button>
-              </DialogTrigger>
-              <TicketFormDialog
-                key={isAddDialogOpen ? 'add-form' : 'closed-add-form'} // Force re-render on open/close if needed
-                sprintId={selectedSprintId}
-                onSubmit={handleAddTicketSubmit}
-                onClose={() => setIsAddDialogOpen(false)}
-                dialogOpen={isAddDialogOpen}
-                title="Add New Ticket"
-                description="Fill in the details for the new ticket."
-              />
-            </Dialog>
+          <Select
+            value={selectedSprintId} // Use state value
+            onValueChange={setSelectedSprintId}
+            disabled={sprints.length === 0}
+          >
+            <SelectTrigger className="w-full md:w-[200px]">
+              {/* Display selected sprint name or placeholder */}
+              <SelectValue placeholder="Select Sprint" />
+            </SelectTrigger>
+            <SelectContent>
+              {sprints.length === 0 && <SelectItem value="no-sprints" disabled>No Sprints Available</SelectItem>}
+              {sprints.map(sprint => (
+                <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button disabled={!selectedSprintId}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Add Ticket
+              </Button>
+            </DialogTrigger>
+            <TicketFormDialog
+              key={isAddDialogOpen ? 'add-form' : 'closed-add-form'} // Force re-render on open/close if needed
+              sprintId={selectedSprintId}
+              onSubmit={handleAddTicketSubmit}
+              onClose={() => setIsAddDialogOpen(false)}
+              dialogOpen={isAddDialogOpen}
+              title="Add New Ticket"
+              description="Fill in the details for the new ticket."
+            />
+          </Dialog>
         </div>
       </div>
 
-       {!selectedSprintId && sprints.length > 0 && (
-         <Card className="flex items-center justify-center h-40 border-dashed border-2">
-            <p className="text-muted-foreground">Please select a sprint to view or add tickets.</p>
+      {!selectedSprintId && sprints.length > 0 && (
+        <Card className="flex items-center justify-center h-40 border-dashed border-2">
+          <p className="text-muted-foreground">Please select a sprint to view or add tickets.</p>
         </Card>
-       )}
-        {sprints.length === 0 && ( // Simplified condition
-         <Card className="flex items-center justify-center h-40 border-dashed border-2">
-            <p className="text-muted-foreground">No sprints available. Please <a href="/sprints" className="underline text-primary">create a sprint</a> first.</p>
+      )}
+      {sprints.length === 0 && ( // Simplified condition
+        <Card className="flex items-center justify-center h-40 border-dashed border-2">
+          <p className="text-muted-foreground">No sprints available. Please <a href="/sprints" className="underline text-primary">create a sprint</a> first.</p>
         </Card>
-       )}
+      )}
 
 
       {currentSprint && (
@@ -260,9 +266,9 @@ export default function TicketsPage() {
           onDragOver={handleDragOver}
         >
           {sprintTickets.length === 0 ? (
-             <Card className="flex items-center justify-center h-40 border-dashed border-2" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, 1)}>
-                <p className="text-muted-foreground">No tickets found for "{currentSprint.name}". Add one!</p>
-             </Card>
+            <Card className="flex items-center justify-center h-40 border-dashed border-2" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, 1)}>
+              <p className="text-muted-foreground">No tickets found for "{currentSprint.name}". Add one!</p>
+            </Card>
           ) : (
             sprintTickets.map((ticket, index) => (
               <Card
@@ -274,73 +280,73 @@ export default function TicketsPage() {
                 onDragOver={handleDragOver} // Allow dropping onto tickets
               >
                 <CardHeader className="flex flex-row items-start justify-between gap-4 p-4">
-                    <div className="flex items-center gap-2 cursor-grab flex-1 min-w-0" title="Drag to reorder">
-                        <GripVertical className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <CardTitle className="text-lg truncate">{ticket.id}: {ticket.name}</CardTitle>
-                            {ticket.description && <CardDescription className="text-xs mt-1 line-clamp-2">{ticket.description}</CardDescription>}
-                        </div>
+                  <div className="flex items-center gap-2 cursor-grab flex-1 min-w-0" title="Drag to reorder">
+                    <GripVertical className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="text-lg truncate">{ticket.id}: {ticket.name}</CardTitle>
+                      {ticket.description && <CardDescription className="text-xs mt-1 line-clamp-2">{ticket.description}</CardDescription>}
                     </div>
-                   <div className="flex items-center gap-2 flex-shrink-0">
-                     <Select value={ticket.status} onValueChange={(value) => handleStatusChange(ticket.id, value as TicketStatus)}>
-                        <SelectTrigger className="w-[150px] text-xs h-8">
-                            <SelectValue placeholder="Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {ticketStatuses.map(status => (
-                            <SelectItem key={status} value={status} className="text-xs">{status}</SelectItem>
-                            ))}
-                        </SelectContent>
-                        </Select>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Select value={ticket.status} onValueChange={(value) => handleStatusChange(ticket.id, value as TicketStatus)}>
+                      <SelectTrigger className="w-[150px] text-xs h-8">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ticketStatuses.map(status => (
+                          <SelectItem key={status} value={status} className="text-xs">{status}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openEditDialog(ticket)} title="Edit Ticket">
-                        <Edit className="h-4 w-4" />
-                        <span className="sr-only">Edit Ticket</span>
+                      <Edit className="h-4 w-4" />
+                      <span className="sr-only">Edit Ticket</span>
                     </Button>
                     <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="icon" className="h-8 w-8" title="Delete Ticket">
-                                <Trash2 className="h-4 w-4" />
-                                 <span className="sr-only">Delete Ticket</span>
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="icon" className="h-8 w-8" title="Delete Ticket">
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete Ticket</span>
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
                         <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
+                          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
                             This action cannot be undone. This will permanently delete ticket "{ticket.name}".
-                            </AlertDialogDescription>
+                          </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteTicketConfirm(ticket.id)}>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDeleteTicketConfirm(ticket.id)}>
                             Delete
-                            </AlertDialogAction>
+                          </AlertDialogAction>
                         </AlertDialogFooter>
-                        </AlertDialogContent>
+                      </AlertDialogContent>
                     </AlertDialog>
                   </div>
                 </CardHeader>
                 {(ticket.markForPostScrum || ticket.specialNotes || ticket.dailyWorkNote) && (
-                    <CardContent className="p-4 pt-0 text-xs space-y-2">
-                         {ticket.dailyWorkNote && (
-                            <p><strong>Daily Note:</strong> {ticket.dailyWorkNote}</p>
-                         )}
-                         {ticket.specialNotes && (
-                             <p><strong>Special Notes:</strong> {ticket.specialNotes}</p>
-                         )}
-                         {ticket.markForPostScrum && (
-                            <div className="border-t pt-2 mt-2 space-y-1">
-                                <p className="flex items-center gap-1 font-semibold"><AlertCircle className="h-3 w-3 text-accent"/> Post-Scrum Marked</p>
-                                {ticket.postScrumPrepNotes && <p><strong>Prep:</strong> {ticket.postScrumPrepNotes}</p>}
-                                {ticket.postScrumDiscussionResults && <p><strong>Results:</strong> {ticket.postScrumDiscussionResults}</p>}
-                                {ticket.postScrumDiscussionResults && (
-                                    <Button size="sm" variant="link" className="p-0 h-auto text-xs" onClick={() => handlePostScrumJiraComment(ticket)}>
-                                        Generate Jira Comment
-                                    </Button>
-                                )}
-                            </div>
-                         )}
-                    </CardContent>
+                  <CardContent className="p-4 pt-0 text-xs space-y-2">
+                    {ticket.dailyWorkNote && (
+                      <p><strong>Daily Note:</strong> {ticket.dailyWorkNote}</p>
+                    )}
+                    {ticket.specialNotes && (
+                      <p><strong>Special Notes:</strong> {ticket.specialNotes}</p>
+                    )}
+                    {ticket.markForPostScrum && (
+                      <div className="border-t pt-2 mt-2 space-y-1">
+                        <p className="flex items-center gap-1 font-semibold"><AlertCircle className="h-3 w-3 text-accent" /> Post-Scrum Marked</p>
+                        {ticket.postScrumPrepNotes && <p><strong>Prep:</strong> {ticket.postScrumPrepNotes}</p>}
+                        {ticket.postScrumDiscussionResults && <p><strong>Results:</strong> {ticket.postScrumDiscussionResults}</p>}
+                        {ticket.postScrumDiscussionResults && (
+                          <Button size="sm" variant="link" className="p-0 h-auto text-xs" onClick={() => handlePostScrumJiraComment(ticket)}>
+                            Generate Jira Comment
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
                 )}
               </Card>
             ))
@@ -348,19 +354,19 @@ export default function TicketsPage() {
         </div>
       )}
 
-        {/* Edit Dialog */}
-        {editingTicket && (
-             <TicketFormDialog
-                key={editingTicket.id} // Force re-render on edit
-                sprintId={editingTicket.sprintId}
-                onSubmit={handleUpdateTicketSubmit}
-                onClose={() => { setEditingTicket(null); setIsEditDialogOpen(false); }}
-                initialData={editingTicket}
-                dialogOpen={isEditDialogOpen}
-                title={`Edit Ticket ${editingTicket.id}`}
-                description="Update the details for this ticket."
-              />
-        )}
+      {/* Edit Dialog */}
+      {editingTicket && (
+        <TicketFormDialog
+          key={editingTicket.id} // Force re-render on edit
+          sprintId={editingTicket.sprintId}
+          onSubmit={handleUpdateTicketSubmit}
+          onClose={() => { setEditingTicket(null); setIsEditDialogOpen(false); }}
+          initialData={editingTicket}
+          dialogOpen={isEditDialogOpen}
+          title={`Edit Ticket ${editingTicket.id}`}
+          description="Update the details for this ticket."
+        />
+      )}
 
     </div>
   );
@@ -379,7 +385,7 @@ interface TicketFormDialogProps {
 }
 
 function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen, title, description }: TicketFormDialogProps) {
-    // Initialize state based on initialData or defaults
+  // Initialize state based on initialData or defaults
   const [name, setName] = useState(initialData?.name ?? '');
   const [ticketId, setTicketId] = useState(initialData?.id ?? ''); // Allow specifying/editing ID
   const [desc, setDesc] = useState(initialData?.description ?? '');
@@ -393,23 +399,23 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
   const [demoTestData, setDemoTestData] = useState(initialData?.demoTestData ?? '');
   const { toast } = useToast();
 
-   // Reset form fields when the dialog opens for adding a new ticket,
-   // or when the initialData changes (e.g., opening edit for a different ticket)
-   React.useEffect(() => {
-     if (dialogOpen) {
-         setName(initialData?.name ?? '');
-         setTicketId(initialData?.id ?? '');
-         setDesc(initialData?.description ?? '');
-         setStatus(initialData?.status ?? 'Todo');
-         setDailyWorkNote(initialData?.dailyWorkNote ?? '');
-         setSpecialNotes(initialData?.specialNotes ?? '');
-         setMarkForPostScrum(initialData?.markForPostScrum ?? false);
-         setPostScrumPrepNotes(initialData?.postScrumPrepNotes ?? '');
-         setPostScrumDiscussionResults(initialData?.postScrumDiscussionResults ?? '');
-         setMarkForDemo(initialData?.markForDemo ?? false);
-         setDemoTestData(initialData?.demoTestData ?? '');
-     }
-   }, [dialogOpen, initialData]);
+  // Reset form fields when the dialog opens for adding a new ticket,
+  // or when the initialData changes (e.g., opening edit for a different ticket)
+  React.useEffect(() => {
+    if (dialogOpen) {
+      setName(initialData?.name ?? '');
+      setTicketId(initialData?.id ?? '');
+      setDesc(initialData?.description ?? '');
+      setStatus(initialData?.status ?? 'Todo');
+      setDailyWorkNote(initialData?.dailyWorkNote ?? '');
+      setSpecialNotes(initialData?.specialNotes ?? '');
+      setMarkForPostScrum(initialData?.markForPostScrum ?? false);
+      setPostScrumPrepNotes(initialData?.postScrumPrepNotes ?? '');
+      setPostScrumDiscussionResults(initialData?.postScrumDiscussionResults ?? '');
+      setMarkForDemo(initialData?.markForDemo ?? false);
+      setDemoTestData(initialData?.demoTestData ?? '');
+    }
+  }, [dialogOpen, initialData]);
 
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -419,9 +425,9 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
       return;
     }
 
-     const dataToSubmit: Omit<Ticket, 'order' | 'sprintId'> & { id?: string } = { // Omit fields managed by hook
+    const dataToSubmit: Omit<Ticket, 'order' | 'sprintId'> & { id?: string } = { // Omit fields managed by hook
       name,
-      id: ticketId.trim() || undefined, // Submit ID if provided, otherwise let hook generate
+      id: ticketId.trim() || "", // Submit ID if provided, otherwise let hook generate
       description: desc,
       status,
       dailyWorkNote,
@@ -438,100 +444,110 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
   };
 
   return (
-     <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        {/* Assign an ID to the form for the submit button */}
-        <form id="ticket-form" onSubmit={handleSubmit} className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-           <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="ticket-id" className="text-right">Ticket ID</Label>
-               <Input
-                  id="ticket-id"
-                  value={ticketId}
-                  onChange={e => setTicketId(e.target.value.toUpperCase().trim())}
-                  placeholder={initialData ? "(Cannot change)" : "(Optional) TKT-123"}
-                  className="col-span-3"
-                  disabled={!!initialData} // Disable editing existing ID
+    <DialogContent className="sm:max-w-[700px]"> {/* Increased max-width */}
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+      {/* Assign an ID to the form for the submit button */}
+      <form id="ticket-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 gap-x-4 py-4 max-h-[70vh] overflow-y-auto pr-2"> {/* Changed to grid-cols-1 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> {/* Nested grid for ID and Name */}
+            <div className="space-y-1">
+                <Label htmlFor="ticket-id">Ticket ID</Label>
+                <Input
+                    id="ticket-id"
+                    value={ticketId}
+                    onChange={e => setTicketId(e.target.value.toUpperCase().trim())}
+                    placeholder={initialData ? "(Cannot change)" : "(Optional) TKT-123"}
+                    disabled={!!initialData} // Disable editing existing ID
                 />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="name" className="text-right">Name*</Label>
-            <Input id="name" value={name} onChange={e => setName(e.target.value)} className="col-span-3" required />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="description" className="text-right">Description</Label>
-            <Textarea id="description" value={desc} onChange={e => setDesc(e.target.value)} className="col-span-3 min-h-[60px]" />
-          </div>
-           <div className="grid grid-cols-4 items-center gap-4">
-             <Label htmlFor="status" className="text-right">Status</Label>
-             <Select value={status} onValueChange={(value) => setStatus(value as TicketStatus)}>
-                <SelectTrigger className="col-span-3">
+            </div>
+             <div className="space-y-1">
+                <Label htmlFor="name">Name*</Label>
+                <Input id="name" value={name} onChange={e => setName(e.target.value)} required />
+            </div>
+        </div>
+
+         <div className="space-y-1">
+          <Label htmlFor="description">Description</Label>
+          <Textarea id="description" value={desc} onChange={e => setDesc(e.target.value)} className="min-h-[60px]" />
+        </div>
+
+         <div className="space-y-1">
+            <Label htmlFor="status">Status</Label>
+            <Select value={status} onValueChange={(value) => setStatus(value as TicketStatus)}>
+                <SelectTrigger>
                     <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                    {ticketStatuses.map(s => (
+                {ticketStatuses.map(s => (
                     <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
+                ))}
                 </SelectContent>
-             </Select>
-           </div>
-           <div className="grid grid-cols-4 items-center gap-4">
-             <Label htmlFor="daily-work" className="text-right">Daily Work</Label>
-             <Textarea id="daily-work" value={dailyWorkNote} onChange={e => setDailyWorkNote(e.target.value)} placeholder="Note on daily progress..." className="col-span-3 min-h-[60px]" />
-           </div>
-           <div className="grid grid-cols-4 items-center gap-4">
-             <Label htmlFor="special-notes" className="text-right">Special Notes</Label>
-             <Textarea id="special-notes" value={specialNotes} onChange={e => setSpecialNotes(e.target.value)} placeholder="Any specific details..." className="col-span-3 min-h-[60px]" />
-           </div>
+            </Select>
+        </div>
 
-           <div className="col-span-4 border-t my-2"></div>
+         <div className="space-y-1">
+          <Label htmlFor="daily-work">Daily Work Note</Label>
+          <Textarea id="daily-work" value={dailyWorkNote} onChange={e => setDailyWorkNote(e.target.value)} placeholder="Note on daily progress..." className="min-h-[60px]" />
+        </div>
 
-            <div className="grid grid-cols-4 items-start gap-4">
-                <Label className="text-right pt-2">Post-Scrum</Label>
-                <div className="col-span-3 space-y-3">
-                    <div className="flex items-center space-x-2">
-                        <Checkbox id="mark-post-scrum" checked={markForPostScrum} onCheckedChange={(checked) => setMarkForPostScrum(Boolean(checked))} />
-                        <Label htmlFor="mark-post-scrum" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            Mark for Post-Scrum Discussion
-                        </Label>
-                    </div>
-                     {markForPostScrum && (
-                        <>
-                         <Textarea value={postScrumPrepNotes} onChange={e => setPostScrumPrepNotes(e.target.value)} placeholder="Preparation Notes..." className="min-h-[60px]" />
-                         <Textarea value={postScrumDiscussionResults} onChange={e => setPostScrumDiscussionResults(e.target.value)} placeholder="Discussion Results..." className="min-h-[60px]" />
-                        </>
-                     )}
-                </div>
+        <div className="space-y-1">
+          <Label htmlFor="special-notes">Special Notes</Label>
+          <Textarea id="special-notes" value={specialNotes} onChange={e => setSpecialNotes(e.target.value)} placeholder="Any specific details (e.g., blockers, dependencies)..." className="min-h-[60px]" />
+        </div>
+
+        <Separator className="my-4" /> {/* Use Separator */}
+
+        <div className="space-y-3 rounded-md border p-4 shadow-sm"> {/* Add border and padding */}
+            <h3 className="text-base font-medium mb-2">Post-Scrum Planning</h3>
+            <div className="flex items-center space-x-2">
+              <Checkbox id="mark-post-scrum" checked={markForPostScrum} onCheckedChange={(checked) => setMarkForPostScrum(Boolean(checked))} />
+              <Label htmlFor="mark-post-scrum" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Mark for Post-Scrum Discussion
+              </Label>
             </div>
-
-             <div className="col-span-4 border-t my-2"></div>
-
-            <div className="grid grid-cols-4 items-start gap-4">
-                <Label className="text-right pt-2">Demo Prep</Label>
-                 <div className="col-span-3 space-y-3">
-                     <div className="flex items-center space-x-2">
-                         <Checkbox id="mark-demo" checked={markForDemo} onCheckedChange={(checked) => setMarkForDemo(Boolean(checked))} />
-                         <Label htmlFor="mark-demo" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                             Include in Demo
-                         </Label>
-                     </div>
-                     {markForDemo && (
-                         <Textarea value={demoTestData} onChange={e => setDemoTestData(e.target.value)} placeholder="Test Data / Demo Steps..." className="min-h-[60px]" />
-                     )}
+            {markForPostScrum && (
+              <div className="space-y-3 pl-6"> {/* Indent notes */}
+                 <div className="space-y-1">
+                    <Label htmlFor="post-scrum-prep">Preparation Notes</Label>
+                    <Textarea id="post-scrum-prep" value={postScrumPrepNotes} onChange={e => setPostScrumPrepNotes(e.target.value)} placeholder="What needs to be discussed or prepared?" className="min-h-[60px]" />
                  </div>
-            </div>
+                 <div className="space-y-1">
+                     <Label htmlFor="post-scrum-results">Discussion Results</Label>
+                    <Textarea id="post-scrum-results" value={postScrumDiscussionResults} onChange={e => setPostScrumDiscussionResults(e.target.value)} placeholder="Summary of discussion and outcomes..." className="min-h-[60px]" />
+                 </div>
+              </div>
+            )}
+        </div>
 
-        </form>
-        <DialogFooter>
-          <DialogClose asChild>
-              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          </DialogClose>
-          {/* Use type="submit" and form="ticket-form" to trigger the form's onSubmit */}
-          <Button type="submit" form="ticket-form">Save Ticket</Button>
-        </DialogFooter>
-     </DialogContent>
+        <Separator className="my-4" /> {/* Use Separator */}
+
+        <div className="space-y-3 rounded-md border p-4 shadow-sm"> {/* Add border and padding */}
+           <h3 className="text-base font-medium mb-2">Demo Preparation</h3>
+            <div className="flex items-center space-x-2">
+              <Checkbox id="mark-demo" checked={markForDemo} onCheckedChange={(checked) => setMarkForDemo(Boolean(checked))} />
+              <Label htmlFor="mark-demo" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Include in Demo
+              </Label>
+            </div>
+            {markForDemo && (
+               <div className="space-y-1 pl-6"> {/* Indent notes */}
+                 <Label htmlFor="demo-data">Test Data / Demo Steps</Label>
+                 <Textarea id="demo-data" value={demoTestData} onChange={e => setDemoTestData(e.target.value)} placeholder="Login credentials, specific data IDs, navigation steps, expected results..." className="min-h-[60px]" />
+               </div>
+            )}
+        </div>
+
+      </form>
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        </DialogClose>
+        {/* Use type="submit" and form="ticket-form" to trigger the form's onSubmit */}
+        <Button type="submit" form="ticket-form">Save Ticket</Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 
