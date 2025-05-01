@@ -1,45 +1,59 @@
+
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from "@/hooks/use-toast";
-import { generateStandupUpdate, type GenerateStandupUpdateInput, type GenerateStandupUpdateOutput } from '@/ai/flows/generate-standup-update'; // Assuming the AI flow exists
+import { useTickets } from '@/hooks/useTickets'; // Import ticket hook
+import { generateStandupUpdate, type GenerateStandupUpdateInput, type GenerateStandupUpdateOutput } from '@/ai/flows/generate-standup-update';
 import { Loader2 } from 'lucide-react';
 
-// Mock data - replace with actual data fetching later
-const mockTickets = [
-  { id: 'TKT-1', name: 'Implement login feature', status: 'In Progress', markForPostScrum: true, postScrumPrepNotes: 'Discuss API contract', postScrumDiscussionResults: 'Agreed on v2 API endpoint', dailyWorkNote: 'Finished frontend validation' },
-  { id: 'TKT-2', name: 'Fix button styling', status: 'Todo', markForPostScrum: false, dailyWorkNote: '' },
-  { id: 'TKT-3', name: 'Setup CI/CD pipeline', status: 'In Progress', markForPostScrum: false, dailyWorkNote: 'Debugging build script' },
-];
-
 export default function Home() {
+  const { tickets } = useTickets(); // Use the hook to get tickets
   const [standupUpdate, setStandupUpdate] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [dailyWork, setDailyWork] = useState<string>(''); // Example state for daily work input
+  const [dailyWork, setDailyWork] = useState<string>('');
   const { toast } = useToast();
+
+   // Memoize active tickets
+   const activeTickets = useMemo(() => {
+     return tickets.filter(t => t.status !== 'Done' && t.status !== 'QA');
+   }, [tickets]);
+
 
   const handleGenerateStandup = async () => {
     setIsLoading(true);
     setStandupUpdate('');
 
     try {
-       // Prepare input for the AI flow
-       const postScrumTickets = mockTickets.filter(t => t.markForPostScrum).map(t => t.id);
+       // Prepare input for the AI flow using data from the hook
+       const postScrumTickets = tickets.filter(t => t.markForPostScrum).map(t => t.id);
        const postScrumDiscussionPrepNotes: Record<string, string> = {};
        const postScrumDiscussionResults: Record<string, string> = {};
-       mockTickets.forEach(t => {
+       tickets.forEach(t => {
          if (t.markForPostScrum) {
            postScrumDiscussionPrepNotes[t.id] = t.postScrumPrepNotes || '';
            postScrumDiscussionResults[t.id] = t.postScrumDiscussionResults || '';
          }
        });
 
+        // Include daily work notes from tickets in the main work description
+        const ticketWorkNotes = activeTickets
+         .map(t => t.dailyWorkNote ? `${t.id}: ${t.dailyWorkNote}` : null)
+         .filter(Boolean) // Remove null entries
+         .join('\n');
+
+       const combinedWorkDescription = [
+         dailyWork || 'Working on assigned tickets.',
+         ticketWorkNotes ? `\nTicket Progress:\n${ticketWorkNotes}` : ''
+        ].filter(Boolean).join('\n');
+
+
       const input: GenerateStandupUpdateInput = {
-        currentWork: dailyWork || 'Working on assigned tickets.', // Use input or default
-        ticketNumbers: mockTickets.map(t => t.id).join(', '),
+        currentWork: combinedWorkDescription,
+        ticketNumbers: activeTickets.map(t => t.id).join(', ') || 'No active tickets',
         postScrumTickets: postScrumTickets,
         postScrumDiscussionPrepNotes: postScrumDiscussionPrepNotes,
         postScrumDiscussionResults: postScrumDiscussionResults,
@@ -64,23 +78,18 @@ export default function Home() {
     }
   };
 
-  // Optionally generate on load or keep it manual
-  // useEffect(() => {
-  //   handleGenerateStandup();
-  // }, []);
-
   return (
     <div className="flex flex-col h-full p-4 md:p-6 lg:p-8 space-y-6">
       <Card className="shadow-md">
         <CardHeader>
           <CardTitle>Daily Stand-up Update</CardTitle>
           <CardDescription>
-            Enter your main focus for today and generate your stand-up update. It will include tickets in progress and post-scrum notes.
+            Enter your main focus for today. The update will automatically include progress notes from your active tickets and relevant post-scrum discussion summaries.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
            <Textarea
-            placeholder="What are you primarily working on today? (e.g., Finishing TKT-1 login UI, starting TKT-2 styling fix...)"
+            placeholder="What is your primary non-ticket focus today? (e.g., Planning meeting, helping team member...)"
             value={dailyWork}
             onChange={(e) => setDailyWork(e.target.value)}
             className="min-h-[60px]"
@@ -95,6 +104,12 @@ export default function Home() {
               <p className="text-sm whitespace-pre-wrap">{standupUpdate}</p>
             </Card>
           )}
+           {isLoading && !standupUpdate && (
+                <div className="flex items-center justify-center p-4">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <p className="ml-2 text-muted-foreground">Generating...</p>
+                </div>
+            )}
         </CardContent>
       </Card>
 
@@ -115,14 +130,19 @@ export default function Home() {
                 <CardDescription>Summary of your active tickets.</CardDescription>
             </CardHeader>
             <CardContent>
-                {/* Replace with dynamic ticket list later */}
-                <ul className="list-disc pl-5 space-y-1 text-sm">
-                   {mockTickets.filter(t => t.status !== 'Done' && t.status !== 'QA').map(ticket => (
-                     <li key={ticket.id}>{ticket.id}: {ticket.name} ({ticket.status})</li>
+                {activeTickets.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No active tickets found.</p>
+                 ) : (
+                 <ul className="list-disc pl-5 space-y-1 text-sm">
+                   {activeTickets.map(ticket => (
+                     <li key={ticket.id}>
+                        <a href="/tickets" className="hover:underline text-primary">
+                            {ticket.id}
+                        </a>: {ticket.name} ({ticket.status})
+                        {ticket.dailyWorkNote && <p className="text-xs text-muted-foreground pl-2">↳ {ticket.dailyWorkNote}</p>}
+                     </li>
                    ))}
                 </ul>
-                 {mockTickets.filter(t => t.status !== 'Done' && t.status !== 'QA').length === 0 && (
-                    <p className="text-sm text-muted-foreground">No active tickets found.</p>
                  )}
             </CardContent>
         </Card>

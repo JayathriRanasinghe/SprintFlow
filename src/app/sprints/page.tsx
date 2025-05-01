@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -9,8 +10,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, PlusCircle, Trash2 } from "lucide-react";
 import { format, subDays } from "date-fns";
-import type { Sprint } from '@/types/sprint';
 import { useToast } from '@/hooks/use-toast';
+import { useSprints } from '@/hooks/useSprints'; // Import the hook
+import { useTickets } from '@/hooks/useTickets'; // Import useTickets hook for deletion cascade
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,11 +25,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-// Mock function for generating IDs - replace with actual ID generation
-const generateId = () => `sprint-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 export default function SprintsPage() {
-  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const { sprints, addSprint, deleteSprint } = useSprints(); // Use the hook
+  const { tickets, setTickets } = useTickets(); // Use tickets hook
   const [newSprintName, setNewSprintName] = useState('');
   const [newStartDate, setNewStartDate] = useState<Date | undefined>();
   const [newEndDate, setNewEndDate] = useState<Date | undefined>();
@@ -51,30 +52,35 @@ export default function SprintsPage() {
       return;
     }
 
-    const newSprint: Sprint = {
-      id: generateId(),
+    // Calculate demo day
+    const demoDay = subDays(newEndDate, 1);
+
+    // Add sprint using the hook's function
+    addSprint({
       name: newSprintName,
       startDate: newStartDate,
       endDate: newEndDate,
-      tickets: [], // Initialize with empty tickets
-      demoDay: subDays(newEndDate, 1), // Calculate demo day
-    };
+      demoDay: demoDay,
+    });
 
-    setSprints([...sprints, newSprint].sort((a, b) => a.startDate.getTime() - b.startDate.getTime()));
+    // Reset form
     setNewSprintName('');
     setNewStartDate(undefined);
     setNewEndDate(undefined);
     toast({
       title: "Sprint Added",
-      description: `Sprint "${newSprint.name}" has been created.`,
+      description: `Sprint "${newSprintName}" has been created.`,
     });
   };
 
   const handleDeleteSprint = (id: string) => {
-    setSprints(sprints.filter(sprint => sprint.id !== id));
+    // Delete the sprint using the hook
+    deleteSprint(id);
+    // Also delete associated tickets
+    setTickets(prevTickets => prevTickets.filter(ticket => ticket.sprintId !== id));
      toast({
       title: "Sprint Deleted",
-      description: "The sprint has been removed.",
+      description: "The sprint and its associated tickets have been removed.",
     });
   };
 
@@ -155,7 +161,9 @@ export default function SprintsPage() {
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold">Existing Sprints</h2>
         {sprints.length === 0 ? (
-          <p className="text-muted-foreground">No sprints created yet.</p>
+          <Card className="flex items-center justify-center h-40 border-dashed border-2">
+             <p className="text-muted-foreground">No sprints created yet. Add one above!</p>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sprints.map((sprint) => (
@@ -167,7 +175,8 @@ export default function SprintsPage() {
                   <p><strong>Start:</strong> {format(sprint.startDate, "PPP")}</p>
                   <p><strong>End:</strong> {format(sprint.endDate, "PPP")}</p>
                   <p><strong>Demo Day:</strong> {sprint.demoDay ? format(sprint.demoDay, "PPP") : 'N/A'}</p>
-                  <p><strong>Tickets:</strong> {sprint.tickets.length}</p>
+                  {/* Count tickets directly from the tickets hook */}
+                  <p><strong>Tickets:</strong> {tickets.filter(t => t.sprintId === sprint.id).length}</p>
                 </CardContent>
                  <CardFooter className="flex justify-end">
                    <AlertDialog>
@@ -201,3 +210,4 @@ export default function SprintsPage() {
     </div>
   );
 }
+

@@ -1,8 +1,8 @@
+
 'use client';
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import type { Ticket, TicketStatus } from '@/types/ticket';
-import type { Sprint } from '@/types/sprint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { PlusCircle, Edit, Trash2, GripVertical, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useSprints } from '@/hooks/useSprints'; // Import sprint hook
+import { useTickets } from '@/hooks/useTickets'; // Import ticket hook
 import {
   Dialog,
   DialogContent,
@@ -34,72 +36,84 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { postCommentToJira } from '@/services/jira'; // Assuming service exists
-import { generateStandupUpdate } from '@/ai/flows/generate-standup-update'; // Import AI flow if needed here
 
-// Mock data - replace with actual data fetching later
-const mockSprints: Sprint[] = [
-  { id: 'sprint-1', name: 'Sprint 24.07', startDate: new Date(2024, 6, 1), endDate: new Date(2024, 6, 14), tickets: [] },
-  { id: 'sprint-2', name: 'Sprint 24.08', startDate: new Date(2024, 7, 1), endDate: new Date(2024, 7, 14), tickets: [] },
-];
-
-const generateTicketId = () => `TKT-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 const ticketStatuses: TicketStatus[] = ['Todo', 'In Progress', 'Code Review', 'QA Ready', 'QA', 'Done'];
 
 export default function TicketsPage() {
-  const [sprints, setSprints] = useState<Sprint[]>(mockSprints);
-  const [tickets, setTickets] = useState<Ticket[]>([]); // Manage tickets globally for now
-  const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(mockSprints[0]?.id);
+  const { sprints } = useSprints(); // Use hook to get sprints
+  const {
+    tickets,
+    addTicket,
+    updateTicket,
+    deleteTicket,
+    updateTicketStatus,
+    updateTicketsOrder,
+    getTicketsBySprint,
+    setTickets, // Get setTickets for direct manipulation if needed (e.g., delete sprint cascade)
+  } = useTickets(); // Use hook for ticket management
+
+  // Local state for UI control
+  const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(() => sprints.length > 0 ? sprints[0].id : undefined);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const { toast } = useToast();
 
+  // Derived state
   const currentSprint = useMemo(() => sprints.find(s => s.id === selectedSprintId), [sprints, selectedSprintId]);
-  const sprintTickets = useMemo(() => tickets
-    .filter(t => t.sprintId === selectedSprintId)
-    .sort((a, b) => a.order - b.order), [tickets, selectedSprintId]);
+  const sprintTickets = useMemo(() => getTicketsBySprint(selectedSprintId), [getTicketsBySprint, selectedSprintId]);
 
-  // --- Ticket CRUD ---
-  const handleAddTicket = (formData: Omit<Ticket, 'id' | 'order'>) => {
+
+  // --- Select Sprint Logic ---
+  // Update selected sprint when sprints data changes (e.g., on initial load or after delete)
+   React.useEffect(() => {
+     if (!selectedSprintId && sprints.length > 0) {
+       setSelectedSprintId(sprints[0].id);
+     } else if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
+       // If the selected sprint was deleted, select the first available one or none
+       setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
+     }
+   }, [sprints, selectedSprintId]);
+
+
+  // --- Ticket Operations ---
+  const handleAddTicketSubmit = useCallback((formData: Omit<Ticket, 'id' | 'order'> & { id?: string }) => {
     if (!selectedSprintId) {
         toast({ title: "No Sprint Selected", description: "Please select a sprint first.", variant: "destructive" });
         return;
     }
-    const maxOrder = sprintTickets.reduce((max, t) => Math.max(max, t.order), 0);
-    const newTicket: Ticket = {
-      ...formData,
-      id: generateTicketId(),
-      order: maxOrder + 1,
-      sprintId: selectedSprintId,
-    };
-    setTickets([...tickets, newTicket]);
-    toast({ title: "Ticket Added", description: `Ticket "${newTicket.name}" created.` });
-    setIsAddDialogOpen(false); // Close dialog
-  };
+    const createdTicket = addTicket({ ...formData, sprintId: selectedSprintId });
+    toast({ title: "Ticket Added", description: `Ticket "${createdTicket.name}" created.` });
+    setIsAddDialogOpen(false);
+  }, [selectedSprintId, addTicket, toast]);
 
-  const handleUpdateTicket = (updatedTicket: Ticket) => {
-    setTickets(tickets.map(t => t.id === updatedTicket.id ? updatedTicket : t));
-    toast({ title: "Ticket Updated", description: `Ticket "${updatedTicket.name}" saved.` });
+  const handleUpdateTicketSubmit = useCallback((updatedTicketData: Omit<Ticket, 'order' | 'sprintId'>) => {
+     if (!editingTicket) return;
+     const fullUpdatedTicket = { ...editingTicket, ...updatedTicketData }; // Ensure all fields are present
+    updateTicket(fullUpdatedTicket);
+    toast({ title: "Ticket Updated", description: `Ticket "${fullUpdatedTicket.name}" saved.` });
     setEditingTicket(null);
     setIsEditDialogOpen(false);
-  };
+  }, [editingTicket, updateTicket, toast]);
 
-  const handleDeleteTicket = (id: string) => {
+  const handleDeleteTicketConfirm = useCallback((id: string) => {
     const ticketToDelete = tickets.find(t => t.id === id);
-    setTickets(tickets.filter(t => t.id !== id));
+    deleteTicket(id);
      toast({ title: "Ticket Deleted", description: `Ticket "${ticketToDelete?.name}" removed.` });
-  };
+  }, [deleteTicket, toast, tickets]);
 
-  const handleStatusChange = (ticketId: string, newStatus: TicketStatus) => {
-     setTickets(tickets.map(t => t.id === ticketId ? { ...t, status: newStatus } : t));
-  };
+   const handleStatusChange = useCallback((ticketId: string, newStatus: TicketStatus) => {
+     updateTicketStatus(ticketId, newStatus);
+      // Optionally toast success
+     // toast({ title: "Status Updated", description: `Ticket ${ticketId} status changed to ${newStatus}.` });
+  }, [updateTicketStatus]);
+
 
   const handlePostScrumJiraComment = async (ticket: Ticket) => {
     if (!ticket.postScrumDiscussionResults) {
       toast({ title: "No Discussion Results", description: "Cannot generate comment without discussion results.", variant: "destructive" });
       return;
     }
-    // TODO: Potentially use AI to refine the comment body
     const commentBody = `Post-scrum discussion summary:\n\n${ticket.postScrumDiscussionResults}`;
     try {
         const success = await postCommentToJira(ticket.id, { body: commentBody });
@@ -114,31 +128,44 @@ export default function TicketsPage() {
     }
   };
 
-  // --- Drag and Drop (Basic Placeholder) ---
+  // --- Drag and Drop ---
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, ticketId: string) => {
     e.dataTransfer.setData("ticketId", ticketId);
+    e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetOrder: number) => {
+    e.preventDefault(); // Prevent default drop behavior
     const draggedTicketId = e.dataTransfer.getData("ticketId");
     if (!draggedTicketId || !selectedSprintId) return;
 
-    const currentTickets = tickets.filter(t => t.sprintId === selectedSprintId).sort((a, b) => a.order - b.order);
+    const currentTickets = getTicketsBySprint(selectedSprintId); // Get sorted tickets for the current sprint
     const draggedIndex = currentTickets.findIndex(t => t.id === draggedTicketId);
     if (draggedIndex === -1) return;
 
     const draggedTicket = currentTickets[draggedIndex];
     const remainingTickets = currentTickets.filter(t => t.id !== draggedTicketId);
 
-    // Find the index where the ticket should be inserted based on targetOrder
-    // This logic needs refinement for precise placement between items
-    let insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
-    if (insertIndex === -1) {
-        insertIndex = remainingTickets.length; // Append to end if targetOrder is highest
-    } else if (currentTickets[draggedIndex].order < targetOrder) {
-         // Adjust index if dragging down
-        // insertIndex needs careful calculation based on drop position relative to target element
-    }
+    // Calculate the correct insertion index based on targetOrder
+    // If dropping onto a ticket, targetOrder is that ticket's order.
+    // If dropping into the empty space at the end, targetOrder can be tickets.length + 1
+    let insertIndex = 0;
+     if (targetOrder > draggedTicket.order) {
+         // Dragging down: Find the index AFTER the target's original position
+         insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
+         if (insertIndex === -1) {
+             insertIndex = remainingTickets.length; // Insert at the end
+         }
+     } else {
+         // Dragging up: Find the index AT the target's original position
+        insertIndex = remainingTickets.findIndex(t => t.order >= targetOrder);
+        if (insertIndex === -1 && remainingTickets.length > 0) {
+             // This case shouldn't typically happen if targetOrder is valid, but handle defensively
+             insertIndex = 0;
+        } else if (insertIndex === -1 && remainingTickets.length === 0) {
+            insertIndex = 0; // Inserting the only item
+        }
+     }
 
 
     const newOrderedTickets = [
@@ -147,21 +174,15 @@ export default function TicketsPage() {
         ...remainingTickets.slice(insertIndex)
     ];
 
-    // Re-assign order based on new position
-    const updatedTickets = newOrderedTickets.map((t, index) => ({ ...t, order: index + 1 }));
-
-    // Update global tickets state
-    setTickets(prevTickets => [
-      ...prevTickets.filter(t => t.sprintId !== selectedSprintId), // Keep tickets from other sprints
-      ...updatedTickets // Add the reordered tickets for the current sprint
-    ]);
+    updateTicketsOrder(selectedSprintId, newOrderedTickets); // Update order via hook
 
      toast({ title: "Ticket Order Updated", description: "Ticket order saved for this sprint." });
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault(); // Necessary to allow drop
-  };
+   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault(); // Necessary to allow drop
+        e.dataTransfer.dropEffect = "move"; // Indicate it's a move operation
+    };
 
   const openEditDialog = (ticket: Ticket) => {
     setEditingTicket(ticket);
@@ -173,11 +194,12 @@ export default function TicketsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tickets</h1>
         <div className="flex gap-2 w-full md:w-auto">
-            <Select value={selectedSprintId} onValueChange={setSelectedSprintId}>
+            <Select value={selectedSprintId} onValueChange={setSelectedSprintId} disabled={sprints.length === 0}>
               <SelectTrigger className="w-full md:w-[200px]">
                 <SelectValue placeholder="Select Sprint" />
               </SelectTrigger>
               <SelectContent>
+                {sprints.length === 0 && <SelectItem value="no-sprints" disabled>No Sprints Available</SelectItem>}
                 {sprints.map(sprint => (
                   <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>
                 ))}
@@ -190,8 +212,9 @@ export default function TicketsPage() {
                 </Button>
               </DialogTrigger>
               <TicketFormDialog
+                key={isAddDialogOpen ? 'add-form' : 'closed-add-form'} // Force re-render on open/close if needed
                 sprintId={selectedSprintId}
-                onSubmit={handleAddTicket}
+                onSubmit={handleAddTicketSubmit}
                 onClose={() => setIsAddDialogOpen(false)}
                 dialogOpen={isAddDialogOpen}
                 title="Add New Ticket"
@@ -201,11 +224,17 @@ export default function TicketsPage() {
         </div>
       </div>
 
-       {!selectedSprintId && (
+       {!selectedSprintId && sprints.length > 0 && (
          <Card className="flex items-center justify-center h-40 border-dashed border-2">
             <p className="text-muted-foreground">Please select a sprint to view or add tickets.</p>
         </Card>
        )}
+        {!selectedSprintId && sprints.length === 0 && (
+         <Card className="flex items-center justify-center h-40 border-dashed border-2">
+            <p className="text-muted-foreground">No sprints available. Please <a href="/sprints" className="underline text-primary">create a sprint</a> first.</p>
+        </Card>
+       )}
+
 
       {currentSprint && (
         <div
@@ -214,7 +243,7 @@ export default function TicketsPage() {
           onDragOver={handleDragOver}
         >
           {sprintTickets.length === 0 ? (
-             <Card className="flex items-center justify-center h-40 border-dashed border-2">
+             <Card className="flex items-center justify-center h-40 border-dashed border-2" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, 1)}>
                 <p className="text-muted-foreground">No tickets found for "{currentSprint.name}". Add one!</p>
              </Card>
           ) : (
@@ -228,11 +257,11 @@ export default function TicketsPage() {
                 onDragOver={handleDragOver} // Allow dropping onto tickets
               >
                 <CardHeader className="flex flex-row items-start justify-between gap-4 p-4">
-                    <div className="flex items-center gap-2 cursor-grab">
-                        <GripVertical className="h-5 w-5 text-muted-foreground" />
-                        <div className="flex-1">
-                            <CardTitle className="text-lg">{ticket.id}: {ticket.name}</CardTitle>
-                            {ticket.description && <CardDescription className="text-xs mt-1">{ticket.description}</CardDescription>}
+                    <div className="flex items-center gap-2 cursor-grab flex-1 min-w-0" title="Drag to reorder">
+                        <GripVertical className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <CardTitle className="text-lg truncate">{ticket.id}: {ticket.name}</CardTitle>
+                            {ticket.description && <CardDescription className="text-xs mt-1 line-clamp-2">{ticket.description}</CardDescription>}
                         </div>
                     </div>
                    <div className="flex items-center gap-2 flex-shrink-0">
@@ -246,13 +275,15 @@ export default function TicketsPage() {
                             ))}
                         </SelectContent>
                         </Select>
-                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openEditDialog(ticket)}>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openEditDialog(ticket)} title="Edit Ticket">
                         <Edit className="h-4 w-4" />
+                        <span className="sr-only">Edit Ticket</span>
                     </Button>
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="icon" className="h-8 w-8">
+                            <Button variant="destructive" size="icon" className="h-8 w-8" title="Delete Ticket">
                                 <Trash2 className="h-4 w-4" />
+                                 <span className="sr-only">Delete Ticket</span>
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -264,7 +295,7 @@ export default function TicketsPage() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteTicket(ticket.id)}>
+                            <AlertDialogAction onClick={() => handleDeleteTicketConfirm(ticket.id)}>
                             Delete
                             </AlertDialogAction>
                         </AlertDialogFooter>
@@ -272,14 +303,17 @@ export default function TicketsPage() {
                     </AlertDialog>
                   </div>
                 </CardHeader>
-                {(ticket.markForPostScrum || ticket.specialNotes) && (
+                {(ticket.markForPostScrum || ticket.specialNotes || ticket.dailyWorkNote) && (
                     <CardContent className="p-4 pt-0 text-xs space-y-2">
+                         {ticket.dailyWorkNote && (
+                            <p><strong>Daily Note:</strong> {ticket.dailyWorkNote}</p>
+                         )}
                          {ticket.specialNotes && (
-                            <p><strong>Notes:</strong> {ticket.specialNotes}</p>
+                             <p><strong>Special Notes:</strong> {ticket.specialNotes}</p>
                          )}
                          {ticket.markForPostScrum && (
                             <div className="border-t pt-2 mt-2 space-y-1">
-                                <p className="flex items-center gap-1 font-semibold"><AlertCircle className="h-3 w-3 text-accent"/> Post-Scrum</p>
+                                <p className="flex items-center gap-1 font-semibold"><AlertCircle className="h-3 w-3 text-accent"/> Post-Scrum Marked</p>
                                 {ticket.postScrumPrepNotes && <p><strong>Prep:</strong> {ticket.postScrumPrepNotes}</p>}
                                 {ticket.postScrumDiscussionResults && <p><strong>Results:</strong> {ticket.postScrumDiscussionResults}</p>}
                                 {ticket.postScrumDiscussionResults && (
@@ -302,7 +336,7 @@ export default function TicketsPage() {
              <TicketFormDialog
                 key={editingTicket.id} // Force re-render on edit
                 sprintId={editingTicket.sprintId}
-                onSubmit={(data) => handleUpdateTicket({ ...editingTicket, ...data })}
+                onSubmit={handleUpdateTicketSubmit}
                 onClose={() => { setEditingTicket(null); setIsEditDialogOpen(false); }}
                 initialData={editingTicket}
                 dialogOpen={isEditDialogOpen}
@@ -319,27 +353,46 @@ export default function TicketsPage() {
 // --- Ticket Form Dialog Component ---
 interface TicketFormDialogProps {
   sprintId: string | undefined;
-  onSubmit: (data: Omit<Ticket, 'id' | 'order' | 'sprintId'> & { sprintId?: string }) => void;
+  onSubmit: (data: Omit<Ticket, 'id' | 'order' | 'sprintId'> & { id?: string }) => void; // Allow optional ID for creation override
   onClose: () => void;
-  initialData?: Omit<Ticket, 'order' | 'sprintId'>; // For editing
+  initialData?: Ticket; // Use full Ticket type for editing
   dialogOpen: boolean;
   title: string;
   description: string;
 }
 
 function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen, title, description }: TicketFormDialogProps) {
-  const [name, setName] = useState(initialData?.name || '');
-  const [ticketId, setTicketId] = useState(initialData?.id || ''); // Allow specifying ID
-  const [desc, setDesc] = useState(initialData?.description || '');
-  const [status, setStatus] = useState<TicketStatus>(initialData?.status || 'Todo');
-  const [dailyWorkNote, setDailyWorkNote] = useState(initialData?.dailyWorkNote || '');
-  const [specialNotes, setSpecialNotes] = useState(initialData?.specialNotes || '');
-  const [markForPostScrum, setMarkForPostScrum] = useState(initialData?.markForPostScrum || false);
-  const [postScrumPrepNotes, setPostScrumPrepNotes] = useState(initialData?.postScrumPrepNotes || '');
-  const [postScrumDiscussionResults, setPostScrumDiscussionResults] = useState(initialData?.postScrumDiscussionResults || '');
-  const [markForDemo, setMarkForDemo] = useState(initialData?.markForDemo || false);
-  const [demoTestData, setDemoTestData] = useState(initialData?.demoTestData || '');
+    // Initialize state based on initialData or defaults
+  const [name, setName] = useState(initialData?.name ?? '');
+  const [ticketId, setTicketId] = useState(initialData?.id ?? ''); // Allow specifying/editing ID
+  const [desc, setDesc] = useState(initialData?.description ?? '');
+  const [status, setStatus] = useState<TicketStatus>(initialData?.status ?? 'Todo');
+  const [dailyWorkNote, setDailyWorkNote] = useState(initialData?.dailyWorkNote ?? '');
+  const [specialNotes, setSpecialNotes] = useState(initialData?.specialNotes ?? '');
+  const [markForPostScrum, setMarkForPostScrum] = useState(initialData?.markForPostScrum ?? false);
+  const [postScrumPrepNotes, setPostScrumPrepNotes] = useState(initialData?.postScrumPrepNotes ?? '');
+  const [postScrumDiscussionResults, setPostScrumDiscussionResults] = useState(initialData?.postScrumDiscussionResults ?? '');
+  const [markForDemo, setMarkForDemo] = useState(initialData?.markForDemo ?? false);
+  const [demoTestData, setDemoTestData] = useState(initialData?.demoTestData ?? '');
   const { toast } = useToast();
+
+   // Reset form fields when the dialog opens for adding a new ticket,
+   // or when the initialData changes (e.g., opening edit for a different ticket)
+   React.useEffect(() => {
+     if (dialogOpen) {
+         setName(initialData?.name ?? '');
+         setTicketId(initialData?.id ?? '');
+         setDesc(initialData?.description ?? '');
+         setStatus(initialData?.status ?? 'Todo');
+         setDailyWorkNote(initialData?.dailyWorkNote ?? '');
+         setSpecialNotes(initialData?.specialNotes ?? '');
+         setMarkForPostScrum(initialData?.markForPostScrum ?? false);
+         setPostScrumPrepNotes(initialData?.postScrumPrepNotes ?? '');
+         setPostScrumDiscussionResults(initialData?.postScrumDiscussionResults ?? '');
+         setMarkForDemo(initialData?.markForDemo ?? false);
+         setDemoTestData(initialData?.demoTestData ?? '');
+     }
+   }, [dialogOpen, initialData]);
 
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -348,9 +401,10 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
       toast({ title: "Missing Name", description: "Ticket name is required.", variant: "destructive" });
       return;
     }
-     // If editing, don't pass sprintId as it shouldn't change via form
-     const dataToSubmit: Omit<Ticket, 'id' | 'order' | 'sprintId'> & { id?: string } = {
+
+     const dataToSubmit: Omit<Ticket, 'order' | 'sprintId'> & { id?: string } = { // Omit fields managed by hook
       name,
+      id: ticketId.trim() || undefined, // Submit ID if provided, otherwise let hook generate
       description: desc,
       status,
       dailyWorkNote,
@@ -362,23 +416,8 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
       demoTestData,
     };
 
-    if (initialData && ticketId) {
-        dataToSubmit.id = ticketId; // Include ID if editing
-    } else if (ticketId) {
-        dataToSubmit.id = ticketId; // Allow setting ID on creation
-    }
-
-
     onSubmit(dataToSubmit);
-    // Resetting form fields might be needed here if not editing
-    if (!initialData) {
-      setName('');
-      setTicketId('');
-      setDesc('');
-      setStatus('Todo');
-      // ... reset other fields
-    }
-    // onClose(); // Let the parent component handle closing
+    // onClose(); // Parent component handles closing after submission
   };
 
   return (
@@ -387,10 +426,18 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+        {/* Assign an ID to the form for the submit button */}
+        <form id="ticket-form" onSubmit={handleSubmit} className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="ticket-id" className="text-right">Ticket ID</Label>
-               <Input id="ticket-id" value={ticketId} onChange={e => setTicketId(e.target.value.toUpperCase())} placeholder="(Optional) TKT-123" className="col-span-3" />
+               <Input
+                  id="ticket-id"
+                  value={ticketId}
+                  onChange={e => setTicketId(e.target.value.toUpperCase().trim())}
+                  placeholder={initialData ? "(Cannot change)" : "(Optional) TKT-123"}
+                  className="col-span-3"
+                  disabled={!!initialData} // Disable editing existing ID
+                />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="name" className="text-right">Name*</Label>
@@ -464,8 +511,8 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
           <DialogClose asChild>
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           </DialogClose>
-          {/* Use onClick to trigger form submission via the button */}
-          <Button type="submit" form="ticket-form" onClick={handleSubmit}>Save Ticket</Button>
+          {/* Use type="submit" and form="ticket-form" to trigger the form's onSubmit */}
+          <Button type="submit" form="ticket-form">Save Ticket</Button>
         </DialogFooter>
      </DialogContent>
   );

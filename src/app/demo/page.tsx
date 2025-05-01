@@ -1,8 +1,8 @@
+
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import type { Ticket } from '@/types/ticket';
-import type { Sprint } from '@/types/sprint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -10,50 +10,62 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useSprints } from '@/hooks/useSprints'; // Import sprint hook
+import { useTickets } from '@/hooks/useTickets'; // Import ticket hook
 import { ClipboardCheck } from 'lucide-react';
-
-// Mock data - replace with actual data fetching later
-const mockSprints: Sprint[] = [
-  { id: 'sprint-1', name: 'Sprint 24.07', startDate: new Date(2024, 6, 1), endDate: new Date(2024, 6, 14), tickets: [] },
-  { id: 'sprint-2', name: 'Sprint 24.08', startDate: new Date(2024, 7, 1), endDate: new Date(2024, 7, 14), tickets: [] },
-];
-
-const mockTickets: Ticket[] = [
-  { id: 'TKT-1', sprintId: 'sprint-1', name: 'Implement login feature', order: 1, status: 'Done', markForPostScrum: false, markForDemo: true, demoTestData: 'User: test@example.com\nPass: password123' },
-  { id: 'TKT-2', sprintId: 'sprint-1', name: 'Fix button styling', order: 2, status: 'Done', markForPostScrum: false, markForDemo: false },
-  { id: 'TKT-4', sprintId: 'sprint-1', name: 'Add profile page', order: 3, status: 'QA Ready', markForPostScrum: false, markForDemo: true, demoTestData: 'Navigate to /profile, check details load' },
-  { id: 'TKT-5', sprintId: 'sprint-2', name: 'Setup database', order: 1, status: 'In Progress', markForPostScrum: false, markForDemo: false },
-];
 
 
 export default function DemoPage() {
-  const [sprints] = useState<Sprint[]>(mockSprints);
-  const [tickets, setTickets] = useState<Ticket[]>(mockTickets);
-  const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(mockSprints[0]?.id);
+  const { sprints } = useSprints();
+  const { tickets, updateTicket, getTicketsBySprint } = useTickets();
   const { toast } = useToast();
 
+  // Local state for UI control
+  const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(() => sprints.length > 0 ? sprints[0].id : undefined);
+
+    // Update selected sprint when sprints data changes
+   React.useEffect(() => {
+     if (!selectedSprintId && sprints.length > 0) {
+       setSelectedSprintId(sprints[0].id);
+     } else if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
+       setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
+     }
+   }, [sprints, selectedSprintId]);
+
+  // Derived state
   const currentSprint = useMemo(() => sprints.find(s => s.id === selectedSprintId), [sprints, selectedSprintId]);
 
-  // Filter tickets for the selected sprint that are potentially demo-able (e.g., not 'Todo' or 'In Progress')
-  const demoCandidates = useMemo(() => tickets
-    .filter(t => t.sprintId === selectedSprintId && !['Todo', 'In Progress'].includes(t.status))
-    .sort((a, b) => a.order - b.order), [tickets, selectedSprintId]);
+  // Filter tickets for the selected sprint that are potentially demo-able
+  const demoCandidates = useMemo(() => getTicketsBySprint(selectedSprintId)
+    .filter(t => !['Todo', 'In Progress'].includes(t.status)),
+    [getTicketsBySprint, selectedSprintId]);
 
-  const handleMarkForDemoChange = (ticketId: string, checked: boolean) => {
-    setTickets(tickets.map(t => t.id === ticketId ? { ...t, markForDemo: checked } : t));
-    toast({ title: checked ? "Marked for Demo" : "Unmarked for Demo", description: `Ticket ${ticketId} updated.` });
-  };
+  // --- Ticket Update Callbacks ---
+  const handleMarkForDemoChange = useCallback((ticketId: string, checked: boolean) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (ticket) {
+        updateTicket({ ...ticket, markForDemo: checked });
+        toast({ title: checked ? "Marked for Demo" : "Unmarked for Demo", description: `Ticket ${ticketId} updated.` });
+    }
+  }, [tickets, updateTicket, toast]);
 
-   const handleDemoDataChange = (ticketId: string, data: string) => {
-    // Basic debouncing or onBlur might be better here in a real app
-     setTickets(tickets.map(t => t.id === ticketId ? { ...t, demoTestData: data } : t));
-  };
+   const handleDemoDataChange = useCallback((ticketId: string, data: string) => {
+     // Note: This updates state immediately, but the actual 'save' happens via the hook
+     // which persists to localStorage. We can remove the explicit save button
+     // if immediate persistence on change is desired.
+     const ticket = tickets.find(t => t.id === ticketId);
+     if (ticket) {
+         updateTicket({ ...ticket, demoTestData: data });
+         // We might not need a toast on every keystroke.
+         // Consider toasting only on button click or after a debounce.
+     }
+  }, [tickets, updateTicket]);
 
-   const handleSaveDemoData = (ticketId: string) => {
-        // In a real app, this would trigger an API call
-        // For now, the state is already updated onChange
+   const handleSaveDemoData = useCallback((ticketId: string) => {
+        // The data is already saved via handleDemoDataChange triggering updateTicket.
+        // This button can provide user feedback.
         toast({ title: "Demo Data Saved", description: `Test data for ticket ${ticketId} updated.` });
-   }
+   }, [toast]);
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
@@ -61,11 +73,12 @@ export default function DemoPage() {
             <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
               <ClipboardCheck className="h-8 w-8 text-accent" /> Demo Preparation
             </h1>
-             <Select value={selectedSprintId} onValueChange={setSelectedSprintId}>
+             <Select value={selectedSprintId} onValueChange={setSelectedSprintId} disabled={sprints.length === 0}>
               <SelectTrigger className="w-full md:w-[200px]">
                 <SelectValue placeholder="Select Sprint" />
               </SelectTrigger>
               <SelectContent>
+                 {sprints.length === 0 && <SelectItem value="no-sprints" disabled>No Sprints Available</SelectItem>}
                 {sprints.map(sprint => (
                   <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>
                 ))}
@@ -73,11 +86,17 @@ export default function DemoPage() {
             </Select>
         </div>
 
-         {!selectedSprintId && (
+         {!selectedSprintId && sprints.length > 0 && (
             <Card className="flex items-center justify-center h-40 border-dashed border-2">
                 <p className="text-muted-foreground">Please select a sprint to prepare for demo.</p>
             </Card>
         )}
+         {!selectedSprintId && sprints.length === 0 && (
+            <Card className="flex items-center justify-center h-40 border-dashed border-2">
+                <p className="text-muted-foreground">No sprints available. Please <a href="/sprints" className="underline text-primary">create a sprint</a> first.</p>
+            </Card>
+         )}
+
 
         {currentSprint && (
              <div className="space-y-4">
@@ -112,9 +131,8 @@ export default function DemoPage() {
                                     onChange={(e) => handleDemoDataChange(ticket.id, e.target.value)}
                                     placeholder="Enter login credentials, specific data IDs, navigation steps, expected results..."
                                     className="min-h-[80px] text-xs"
-                                    // Consider adding onBlur save instead of button for better UX
-                                    // onBlur={() => handleSaveDemoData(ticket.id)}
                                 />
+                                 {/* Optional: Keep save button for explicit confirmation */}
                                  <Button size="sm" onClick={() => handleSaveDemoData(ticket.id)} className="mt-2">Save Data</Button>
                             </CardContent>
                         )}
@@ -126,3 +144,4 @@ export default function DemoPage() {
     </div>
   );
 }
+
