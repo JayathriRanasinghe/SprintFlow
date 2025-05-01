@@ -59,33 +59,31 @@ export default function TicketsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false); // State to control edit dialog
   const { toast } = useToast();
+  const [isMounted, setIsMounted] = useState(false); // State to track mount
 
   // --- Effects ---
-  // Set initial sprint selection only on the client after mount
+  // Set initial sprint selection and track mount
   useEffect(() => {
-    // Check if hydration is complete before setting state based on sprints
-    if (typeof window !== 'undefined') {
-        if (!selectedSprintId && sprints.length > 0) {
-            setSelectedSprintId(sprints[0].id);
-        }
+    setIsMounted(true);
+    if (!selectedSprintId && sprints.length > 0) {
+      setSelectedSprintId(sprints[0].id);
     }
-    // Intentionally run only once on mount to set initial state
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sprints]); // Depend on sprints to set when they load
+  }, [sprints]); // Rerun only if sprints list changes
 
   // Effect to handle sprint list changes (e.g., deletion)
   useEffect(() => {
-     if (typeof window !== 'undefined') {
-        // Check if the currently selected sprint still exists in the list
-        if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
-        // If not, select the first available sprint or undefined if none exist
-        setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
-        } else if (!selectedSprintId && sprints.length > 0) {
-        // If no sprint is selected but sprints exist, select the first one
-        setSelectedSprintId(sprints[0].id);
-        }
+    if (!isMounted) return; // Don't run on server
+
+    // Check if the currently selected sprint still exists in the list
+    if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
+      // If not, select the first available sprint or undefined if none exist
+      setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
+    } else if (!selectedSprintId && sprints.length > 0) {
+      // If no sprint is selected but sprints exist, select the first one
+      setSelectedSprintId(sprints[0].id);
     }
-  }, [sprints, selectedSprintId]); // Re-run if sprints list or selection changes
+  }, [sprints, selectedSprintId, isMounted]); // Re-run if sprints list or selection changes, or on mount
 
 
   // Derived state
@@ -212,6 +210,26 @@ export default function TicketsPage() {
       setIsEditDialogOpen(false); // Close the edit dialog
   };
 
+  // Render placeholder if not mounted yet to avoid hydration mismatch
+  if (!isMounted) {
+    return (
+        <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <h1 className="text-3xl font-bold tracking-tight">Tickets</h1>
+                {/* Placeholder for select and button */}
+                <div className="flex gap-2 w-full md:w-auto h-10">
+                    <div className="w-full md:w-[200px] bg-muted rounded-md animate-pulse"></div>
+                    <div className="w-[130px] bg-muted rounded-md animate-pulse"></div>
+                </div>
+            </div>
+            <Card className="flex items-center justify-center h-40 border-dashed border-2">
+                <p className="text-muted-foreground">Loading...</p>
+            </Card>
+        </div>
+    );
+  }
+
+
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -223,7 +241,6 @@ export default function TicketsPage() {
             disabled={sprints.length === 0}
           >
             <SelectTrigger className="w-full md:w-[200px]">
-              {/* Display selected sprint name or placeholder */}
               <SelectValue placeholder="Select Sprint" />
             </SelectTrigger>
             <SelectContent>
@@ -471,7 +488,8 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       {/* Assign an ID to the form for the submit button */}
-      <form id="ticket-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 gap-x-4 py-4 max-h-[70vh] overflow-y-auto pr-2"> {/* Changed to grid-cols-1 */}
+      {/* Removed padding from the form, relies on DialogContent padding */}
+      <form id="ticket-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 gap-x-4 max-h-[70vh] overflow-y-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> {/* Nested grid for ID and Name */}
             <div className="space-y-1">
                 <Label htmlFor="ticket-id">Ticket ID</Label>
