@@ -15,12 +15,18 @@ export default function Home() {
   const [standupUpdate, setStandupUpdate] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [dailyWork, setDailyWork] = useState<string>('');
+  const [isMounted, setIsMounted] = useState(false); // State to track client mount
   const { toast } = useToast();
 
    // Memoize active tickets
    const activeTickets = useMemo(() => {
      return tickets.filter(t => t.status !== 'Done' && t.status !== 'QA');
    }, [tickets]);
+
+   // Effect to track client-side mount
+   useEffect(() => {
+     setIsMounted(true);
+   }, []);
 
 
   const handleGenerateStandup = async () => {
@@ -130,9 +136,12 @@ export default function Home() {
                 <CardDescription>Summary of your active tickets.</CardDescription>
             </CardHeader>
             <CardContent>
-                {activeTickets.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No active tickets found.</p>
-                 ) : (
+              {/* Defer rendering ticket list until mounted to avoid hydration mismatch */}
+              {!isMounted ? (
+                 <p className="text-sm text-muted-foreground">Loading tickets...</p>
+              ) : activeTickets.length === 0 ? (
+                 <p className="text-sm text-muted-foreground">No active tickets found.</p>
+              ) : (
                  <ul className="list-disc pl-5 space-y-1 text-sm">
                    {activeTickets.map(ticket => (
                      <li key={ticket.id}>
@@ -142,8 +151,8 @@ export default function Home() {
                         {ticket.dailyWorkNote && <p className="text-xs text-muted-foreground pl-2">↳ {ticket.dailyWorkNote}</p>}
                      </li>
                    ))}
-                </ul>
-                 )}
+                 </ul>
+              )}
             </CardContent>
         </Card>
       </div>
