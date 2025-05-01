@@ -54,7 +54,6 @@ export default function TicketsPage() {
   } = useTickets(); // Use hook for ticket management
 
   // Local state for UI control
-  // Initialize consistently to undefined to avoid hydration mismatch
   const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(undefined);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
