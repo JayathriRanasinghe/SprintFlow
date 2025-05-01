@@ -73,12 +73,17 @@ export default function Home() {
       });
     } catch (error) {
       console.error("Error generating stand-up update:", error);
+      let description = "Could not generate stand-up update. Please try again.";
+      // Check for specific API error messages
+      if (error instanceof Error && (error.message.includes('503') || error.message.toLowerCase().includes('overloaded'))) {
+        description = "The AI model is currently unavailable or overloaded. Please try again in a few moments.";
+      }
       toast({
         title: "Error Generating Update",
-        description: "Could not generate stand-up update. Please try again.",
+        description: description,
         variant: "destructive",
       });
-      setStandupUpdate('Failed to generate stand-up update.');
+      setStandupUpdate(`Failed to generate stand-up update. ${description}`); // Update the display text as well
     } finally {
       setIsLoading(false);
     }
@@ -138,7 +143,10 @@ export default function Home() {
             <CardContent>
               {/* Defer rendering ticket list until mounted to avoid hydration mismatch */}
               {!isMounted ? (
-                 <p className="text-sm text-muted-foreground">Loading tickets...</p>
+                 <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                   <Loader2 className="h-4 w-4 animate-spin" />
+                   <span>Loading tickets...</span>
+                 </div>
               ) : activeTickets.length === 0 ? (
                  <p className="text-sm text-muted-foreground">No active tickets found.</p>
               ) : (
