@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, PlusCircle, Trash2 } from "lucide-react";
+import { CalendarIcon, PlusCircle, Trash2, Edit, Check, X } from "lucide-react"; // Added Edit, Check, X
 import { format, subDays } from "date-fns";
 import { useToast } from '@/hooks/use-toast';
 import { useSprints } from '@/hooks/useSprints'; // Import the hook
+import type { Sprint } from '@/types/sprint'; // Import Sprint type
 import { useTickets } from '@/hooks/useTickets'; // Import useTickets hook for deletion cascade
 import {
   AlertDialog,
@@ -27,12 +28,16 @@ import {
 
 
 export default function SprintsPage() {
-  const { sprints, addSprint, deleteSprint } = useSprints(); // Use the hook
+  const { sprints, addSprint, deleteSprint, updateSprint } = useSprints(); // Use the hook, added updateSprint
   const { tickets, setTickets } = useTickets(); // Use tickets hook
   const [newSprintName, setNewSprintName] = useState('');
   const [newStartDate, setNewStartDate] = useState<Date | undefined>();
   const [newEndDate, setNewEndDate] = useState<Date | undefined>();
   const { toast } = useToast();
+
+  // State for inline editing
+  const [editingSprintId, setEditingSprintId] = useState<string | null>(null);
+  const [editedSprintName, setEditedSprintName] = useState<string>('');
 
   const handleAddSprint = () => {
     if (!newSprintName || !newStartDate || !newEndDate) {
@@ -61,6 +66,7 @@ export default function SprintsPage() {
       startDate: newStartDate,
       endDate: newEndDate,
       demoDay: demoDay,
+      tickets: [], // Initialize tickets explicitly
     });
 
     // Reset form
@@ -83,6 +89,33 @@ export default function SprintsPage() {
       description: "The sprint and its associated tickets have been removed.",
     });
   };
+
+  // --- Inline Editing Handlers ---
+  const handleEditClick = (sprint: Sprint) => {
+    setEditingSprintId(sprint.id);
+    setEditedSprintName(sprint.name);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSprintId(null);
+    setEditedSprintName('');
+  };
+
+  const handleSaveSprintName = (sprintId: string) => {
+      const sprintToUpdate = sprints.find(s => s.id === sprintId);
+      const trimmedName = editedSprintName.trim();
+      if (sprintToUpdate && trimmedName) {
+          updateSprint({ ...sprintToUpdate, name: trimmedName });
+          toast({ title: "Sprint Renamed", description: `Sprint renamed to "${trimmedName}".` });
+          handleCancelEdit(); // Close editing mode
+      } else if (!trimmedName) {
+           toast({ title: "Invalid Name", description: "Sprint name cannot be empty.", variant: "destructive" });
+      } else {
+           toast({ title: "Error", description: "Could not find sprint to update.", variant: "destructive" });
+           handleCancelEdit(); // Also cancel on error
+      }
+  };
+
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
@@ -168,8 +201,34 @@ export default function SprintsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sprints.map((sprint) => (
               <Card key={sprint.id} className="shadow-sm flex flex-col justify-between">
-                <CardHeader>
-                  <CardTitle>{sprint.name}</CardTitle>
+                 <CardHeader>
+                    {editingSprintId === sprint.id ? (
+                    <div className="flex items-center gap-2">
+                        <Input
+                        value={editedSprintName}
+                        onChange={(e) => setEditedSprintName(e.target.value)}
+                        className="h-8 flex-grow" // Adjusted input style
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveSprintName(sprint.id); else if (e.key === 'Escape') handleCancelEdit(); }}
+                        />
+                        <Button size="icon" className="h-8 w-8" onClick={() => handleSaveSprintName(sprint.id)} title="Save Name">
+                        <Check className="h-4 w-4" />
+                        <span className="sr-only">Save Name</span>
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleCancelEdit} title="Cancel Edit">
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Cancel Edit</span>
+                        </Button>
+                    </div>
+                    ) : (
+                    <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="flex-grow truncate pr-1">{sprint.name}</CardTitle>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => handleEditClick(sprint)} title="Edit Name">
+                            <Edit className="h-4 w-4" />
+                            <span className="sr-only">Edit Name</span>
+                        </Button>
+                    </div>
+                    )}
                 </CardHeader>
                 <CardContent className="text-sm space-y-1">
                   <p><strong>Start:</strong> {format(sprint.startDate, "PPP")}</p>
