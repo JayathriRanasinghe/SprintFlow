@@ -561,14 +561,15 @@ const SidebarMenuButton = React.forwardRef<
       size = "default",
       tooltip,
       className,
+      children, // Extract children prop
       ...props
     },
     ref
   ) => {
     const { isMobile, state } = useSidebar()
 
-    const buttonProps = {
-      ref: ref,
+    // Create the core button props
+    const buttonCoreProps = {
       'data-sidebar': "menu-button",
       'data-size': size,
       'data-active': isActive,
@@ -576,16 +577,22 @@ const SidebarMenuButton = React.forwardRef<
       ...props,
     }
 
-    const button = asChild ? (
-      <Slot {...buttonProps}>{props.children}</Slot>
-    ) : (
-      <button {...buttonProps}>{props.children}</button>
+    // Determine the component type (Slot or button)
+    const Comp = asChild ? Slot : "button"
+
+    // Render the button/slot component
+    const buttonElement = (
+        <Comp ref={ref} {...buttonCoreProps}>
+            {children}
+        </Comp>
     )
 
+    // If no tooltip, return the button directly
     if (!tooltip) {
-      return button
+      return buttonElement
     }
 
+    // Configure tooltip content properties
     let tooltipContentProps: React.ComponentProps<typeof TooltipContent> = {
         side: "right",
         align: "center",
@@ -598,40 +605,21 @@ const SidebarMenuButton = React.forwardRef<
         tooltipContentProps = { ...tooltipContentProps, ...tooltip };
     }
 
+    // Wrap the button/slot in Tooltip and TooltipTrigger
     return (
       <Tooltip>
-        {/* TooltipTrigger must receive a single React element child.
-            If `asChild` is true, the child is passed directly.
-            If `asChild` is false, the button itself is the child.
-            We need to ensure the direct child of TooltipTrigger is NOT using `asChild`.
+        {/* Important: TooltipTrigger must receive a single valid React element child.
+            We pass `asChild` to TooltipTrigger so it correctly uses our buttonElement as its trigger,
+            avoiding the "React.Children.only" error when the `SidebarMenuButton` itself uses `asChild`.
         */}
-        <TooltipTrigger asChild>
-          {asChild ? (
-             <Slot
-                ref={ref}
-                data-sidebar="menu-button"
-                data-size={size}
-                data-active={isActive}
-                className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
-                {...props}
-                >{props.children}</Slot>
-          ) : (
-             <button
-                ref={ref}
-                data-sidebar="menu-button"
-                data-size={size}
-                data-active={isActive}
-                className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
-                {...props}
-              >{props.children}</button>
-          )}
-        </TooltipTrigger>
+        <TooltipTrigger asChild>{buttonElement}</TooltipTrigger>
         <TooltipContent {...tooltipContentProps} />
       </Tooltip>
     )
   }
 )
 SidebarMenuButton.displayName = "SidebarMenuButton"
+
 
 const SidebarMenuAction = React.forwardRef<
   HTMLButtonElement,
@@ -802,3 +790,6 @@ export {
   SidebarTrigger,
   useSidebar,
 }
+
+
+    
