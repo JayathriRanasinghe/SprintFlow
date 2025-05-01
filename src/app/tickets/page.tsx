@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react'; // Import useEffect
 import type { Ticket, TicketStatus } from '@/types/ticket';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,27 +53,39 @@ export default function TicketsPage() {
   } = useTickets(); // Use hook for ticket management
 
   // Local state for UI control
-  const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(() => sprints.length > 0 ? sprints[0].id : undefined);
+  // Initialize consistently to undefined to avoid hydration mismatch
+  const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(undefined);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const { toast } = useToast();
 
+  // --- Effects ---
+  // Set initial sprint selection only on the client after mount
+  useEffect(() => {
+    if (!selectedSprintId && sprints.length > 0) {
+      setSelectedSprintId(sprints[0].id);
+    }
+    // Intentionally run only once on mount to set initial state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sprints]); // Depend on sprints to set when they load
+
+  // Effect to handle sprint list changes (e.g., deletion)
+  useEffect(() => {
+    // Check if the currently selected sprint still exists in the list
+    if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
+      // If not, select the first available sprint or undefined if none exist
+      setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
+    } else if (!selectedSprintId && sprints.length > 0) {
+        // If no sprint is selected but sprints exist, select the first one
+        setSelectedSprintId(sprints[0].id);
+    }
+  }, [sprints, selectedSprintId]); // Re-run if sprints list or selection changes
+
+
   // Derived state
   const currentSprint = useMemo(() => sprints.find(s => s.id === selectedSprintId), [sprints, selectedSprintId]);
   const sprintTickets = useMemo(() => getTicketsBySprint(selectedSprintId), [getTicketsBySprint, selectedSprintId]);
-
-
-  // --- Select Sprint Logic ---
-  // Update selected sprint when sprints data changes (e.g., on initial load or after delete)
-   React.useEffect(() => {
-     if (!selectedSprintId && sprints.length > 0) {
-       setSelectedSprintId(sprints[0].id);
-     } else if (selectedSprintId && !sprints.some(s => s.id === selectedSprintId)) {
-       // If the selected sprint was deleted, select the first available one or none
-       setSelectedSprintId(sprints.length > 0 ? sprints[0].id : undefined);
-     }
-   }, [sprints, selectedSprintId]);
 
 
   // --- Ticket Operations ---
@@ -194,8 +206,13 @@ export default function TicketsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Tickets</h1>
         <div className="flex gap-2 w-full md:w-auto">
-            <Select value={selectedSprintId} onValueChange={setSelectedSprintId} disabled={sprints.length === 0}>
+            <Select
+              value={selectedSprintId} // Use state value
+              onValueChange={setSelectedSprintId}
+              disabled={sprints.length === 0}
+            >
               <SelectTrigger className="w-full md:w-[200px]">
+                 {/* Display selected sprint name or placeholder */}
                 <SelectValue placeholder="Select Sprint" />
               </SelectTrigger>
               <SelectContent>
@@ -229,7 +246,7 @@ export default function TicketsPage() {
             <p className="text-muted-foreground">Please select a sprint to view or add tickets.</p>
         </Card>
        )}
-        {!selectedSprintId && sprints.length === 0 && (
+        {sprints.length === 0 && ( // Simplified condition
          <Card className="flex items-center justify-center h-40 border-dashed border-2">
             <p className="text-muted-foreground">No sprints available. Please <a href="/sprints" className="underline text-primary">create a sprint</a> first.</p>
         </Card>
@@ -517,3 +534,4 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
      </DialogContent>
   );
 }
+
