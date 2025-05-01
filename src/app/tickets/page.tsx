@@ -58,7 +58,7 @@ export default function TicketsPage() {
   const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>(undefined);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false); // State to control edit dialog
   const { toast } = useToast();
 
   // --- Effects ---
@@ -111,7 +111,7 @@ export default function TicketsPage() {
     updateTicket(fullUpdatedTicket);
     toast({ title: "Ticket Updated", description: `Ticket "${fullUpdatedTicket.name}" saved.` });
     setEditingTicket(null);
-    setIsEditDialogOpen(false);
+    setIsEditDialogOpen(false); // Close the dialog on successful update
   }, [editingTicket, updateTicket, toast]);
 
   const handleDeleteTicketConfirm = useCallback((id: string) => {
@@ -202,9 +202,15 @@ export default function TicketsPage() {
     e.dataTransfer.dropEffect = "move"; // Indicate it's a move operation
   };
 
+  // --- Dialog Control ---
   const openEditDialog = (ticket: Ticket) => {
     setEditingTicket(ticket);
-    setIsEditDialogOpen(true);
+    setIsEditDialogOpen(true); // Open the edit dialog
+  };
+
+  const closeEditDialog = () => {
+      setEditingTicket(null);
+      setIsEditDialogOpen(false); // Close the edit dialog
   };
 
   return (
@@ -213,7 +219,7 @@ export default function TicketsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Tickets</h1>
         <div className="flex gap-2 w-full md:w-auto">
           <Select
-            value={selectedSprintId} // Use state value
+            value={selectedSprintId ?? ''} // Ensure value is not undefined for Select
             onValueChange={setSelectedSprintId}
             disabled={sprints.length === 0}
           >
@@ -298,6 +304,7 @@ export default function TicketsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* Edit Button opens the edit dialog */}
                     <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openEditDialog(ticket)} title="Edit Ticket">
                       <Edit className="h-4 w-4" />
                       <span className="sr-only">Edit Ticket</span>
@@ -354,19 +361,19 @@ export default function TicketsPage() {
         </div>
       )}
 
-      {/* Edit Dialog */}
-      {editingTicket && (
-        <TicketFormDialog
-          key={editingTicket.id} // Force re-render on edit
-          sprintId={editingTicket.sprintId}
-          onSubmit={handleUpdateTicketSubmit}
-          onClose={() => { setEditingTicket(null); setIsEditDialogOpen(false); }}
-          initialData={editingTicket}
-          dialogOpen={isEditDialogOpen}
-          title={`Edit Ticket ${editingTicket.id}`}
-          description="Update the details for this ticket."
-        />
-      )}
+      {/* Edit Ticket Dialog - Rendered conditionally based on isEditDialogOpen */}
+       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+         <TicketFormDialog
+           key={editingTicket ? `edit-${editingTicket.id}` : 'closed-edit-form'} // Use ticket ID in key
+           sprintId={editingTicket?.sprintId} // Pass sprintId from editingTicket
+           onSubmit={handleUpdateTicketSubmit}
+           onClose={closeEditDialog}
+           initialData={editingTicket ?? undefined} // Pass editingTicket as initialData
+           dialogOpen={isEditDialogOpen} // Control visibility
+           title={editingTicket ? `Edit Ticket ${editingTicket.id}` : 'Edit Ticket'}
+           description="Update the details for this ticket."
+         />
+       </Dialog>
 
     </div>
   );
@@ -376,7 +383,7 @@ export default function TicketsPage() {
 // --- Ticket Form Dialog Component ---
 interface TicketFormDialogProps {
   sprintId: string | undefined;
-  onSubmit: (data: Omit<Ticket, 'id' | 'order' | 'sprintId'> & { id?: string }) => void; // Allow optional ID for creation override
+  onSubmit: (data: Omit<Ticket, 'order' | 'sprintId'> & { id?: string }) => void; // Allow optional ID for creation override
   onClose: () => void;
   initialData?: Ticket; // Use full Ticket type for editing
   dialogOpen: boolean;
@@ -424,10 +431,15 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
       toast({ title: "Missing Name", description: "Ticket name is required.", variant: "destructive" });
       return;
     }
+     if (!sprintId && !initialData) { // Check sprintId only if adding a new ticket
+        toast({ title: "Missing Sprint ID", description: "Cannot determine sprint for new ticket.", variant: "destructive" });
+        return;
+     }
+
 
     const dataToSubmit: Omit<Ticket, 'order' | 'sprintId'> & { id?: string } = { // Omit fields managed by hook
       name,
-      id: ticketId.trim() || "", // Submit ID if provided, otherwise let hook generate
+      id: ticketId.trim() || undefined, // Submit ID if provided (only for editing), otherwise let hook generate for add
       description: desc,
       status,
       dailyWorkNote,
@@ -439,12 +451,22 @@ function TicketFormDialog({ sprintId, onSubmit, onClose, initialData, dialogOpen
       demoTestData,
     };
 
+     // For adding, ensure the ID is not passed if empty, so the hook generates it.
+     // For editing, the ID from initialData should always be present.
+     if (!initialData && !ticketId.trim()) {
+       delete dataToSubmit.id;
+     } else if (initialData) {
+        dataToSubmit.id = initialData.id; // Ensure existing ID is used for update
+     }
+
+
     onSubmit(dataToSubmit);
-    // onClose(); // Parent component handles closing after submission
+    // onClose(); // Let the parent component handle closing on successful submission
   };
 
   return (
-    <DialogContent className="sm:max-w-[700px]"> {/* Increased max-width */}
+     // Wrap the form content in DialogContent
+    <DialogContent className="sm:max-w-[700px]">
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
